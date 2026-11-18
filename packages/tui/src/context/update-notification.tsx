@@ -8,6 +8,11 @@ import { useExit } from "./exit"
 import { useEpilogue } from "./epilogue"
 import { useDialog } from "../ui/dialog"
 import { DialogUpdate } from "../component/dialog-update"
+import { usePromptRef } from "./prompt"
+import { useToast } from "../ui/toast"
+import { DialogForkUpdate } from "../component/dialog-fork-update"
+import { loadReleaseNotes, type ReleaseNotes } from "../util/changelog"
+import { useTuiApp } from "./runtime"
 
 type ClientNotice = { readonly type: "available" | "installed"; readonly version: string }
 type Notice = ClientNotice & ({ readonly source: "client" } | { readonly source: "server"; readonly remote: boolean })
@@ -17,6 +22,9 @@ export type UpdateState =
   | { readonly type: "failed"; readonly message: string }
 
 export type UpdateSource = {
+  readonly prompt?: (version: string) => string
+  /** Release notes shown before preparing a fork update. Defaults to the public changelog. */
+  readonly changelog?: (input: { current: string; target: string; signal: AbortSignal }) => Promise<ReleaseNotes[]>
   readonly remote: boolean
   readonly subscribe: (notify: (notice: ClientNotice) => void) => () => void
   readonly check: (
@@ -34,6 +42,9 @@ export const { use: useUpdateNotification, provider: UpdateNotificationProvider 
     const epilogue = useEpilogue()
     const dialog = useDialog()
     const log = useLog({ component: "update-notification" })
+    const prompt = usePromptRef()
+    const toast = useToast()
+    const app = useTuiApp()
     const [state, setState] = createSignal<UpdateState>()
     const [notification, setNotification] = createSignal<Notice>()
     const [notifications, markNotification] = useStorage().store<{ versions: string[] }>("update-notifications", {
@@ -102,8 +113,56 @@ export const { use: useUpdateNotification, provider: UpdateNotificationProvider 
       exit()
     }
 
-    const open = (origin: "manual" | "notification") => {
+    const open = async (origin: "manual" | "notification") => {
       if (!props.updater) return
+      if (props.updater.prompt) {
+        const updater = props.updater
+        const current = notification()
+        // Defer insertion until the slash command has finished handling its input event.
+        const result = await (
+          current?.source === "client" && current.type === "available"
+            ? Promise.resolve(current)
+            : updater.check(new AbortController().signal, () => {}).catch((error) => {
+                toast.show({ variant: "error", message: errorMessage(error) })
+                return null
+              })
+        )
+        if (result === null) return
+        if (!result || result.type !== "available") {
+          toast.show({
+            variant: "info",
+            message: result?.type === "unavailable" ? result.message : "No stable OpenCode update available.",
+          })
+          return
+        }
+        const text = updater.prompt?.(result.version)
+        if (!text) return
+        const prepare = () => {
+          const target = prompt.current
+          if (!target) {
+            toast.show({ variant: "warning", message: "Open a chat prompt before preparing the fork update." })
+            return
+          }
+          dialog.clear()
+          target.setMode("normal")
+          target.set({
+            ...target.current,
+            text: [target.current.text, text].filter(Boolean).join("\n\n"),
+          })
+          target.focus()
+        }
+        const changelog = updater.changelog ?? loadReleaseNotes
+        dialog.replace(() => (
+          <DialogForkUpdate
+            current={app.version}
+            version={result.version}
+            notes={(signal) => changelog({ current: app.version, target: result.version, signal })}
+            skip={dismiss}
+            prepare={prepare}
+          />
+        ))
+        return
+      }
       const current = notification()
       const known = current && (current.source === "client" || !current.remote) ? current : undefined
       if (origin === "notification" && !known) return
