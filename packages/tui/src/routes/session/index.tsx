@@ -13,7 +13,7 @@ import {
   type Accessor,
 } from "solid-js"
 import path from "node:path"
-import { EOL } from "node:os"
+import { EOL, tmpdir } from "node:os"
 import { mkdir, writeFile } from "node:fs/promises"
 import { useRoute, useRouteData } from "../../context/route"
 import { createStore } from "solid-js/store"
@@ -47,7 +47,6 @@ import {
 } from "@opencode/client"
 import { useLocal } from "../../context/local"
 import { Locale } from "../../util/locale"
-import { MessageTimestamp } from "./message-timestamp"
 import { FilePath } from "../../ui/file-path"
 import {
   canonicalToolName,
@@ -121,6 +120,7 @@ import { stringWidth } from "../../util/string-width"
 import { useArgs } from "../../context/args"
 import { withTimestampedFallback } from "@opencode/util/session-title-fallback"
 import { SessionTurn } from "@opencode/util/session-turn"
+import { TextBoundary } from "@opencode/util/text-boundary"
 import { useSessionTabs, type ScrollAnchor } from "../../context/session-tabs"
 import { createSingleFlight } from "../../util/single-flight"
 import { createDelayedPresence } from "../../util/delayed-presence"
@@ -208,7 +208,6 @@ export function Session(props: {
     return data.session.family(route.sessionID).filter((id) => id !== route.sessionID)
   })
   const permissions = createMemo(() => {
-    if (session()?.parentID) return []
     return [route.sessionID, ...descendantSessionIDs()].flatMap(
       (sessionID) => data.session.permission.list(sessionID) ?? [],
     )
@@ -234,6 +233,9 @@ export function Session(props: {
     open: false,
     tab: undefined as string | undefined,
   })
+  const composerVisible = createMemo(
+    () => promptedPermissions().length === 0 && (composer.open || (!!session()?.parentID && forms().length === 0)),
+  )
   props.onTerminalPicker?.(() => setComposer({ open: true, tab: "terminals" }))
   onCleanup(() => props.onTerminalPicker?.(undefined))
   createEffect(() => {
@@ -1378,7 +1380,7 @@ export function Session(props: {
           }
 
           const filepath = path.join(
-            paths.cwd,
+            options.location === "temp" ? tmpdir() : paths.cwd,
             `session-${crypto.randomUUID()}.${options.format === "markdown" ? "md" : "json"}`,
           )
           await writeExport(filepath, content)
@@ -1602,7 +1604,7 @@ export function Session(props: {
               <Slot path="session.composer.top" input={{ sessionID: route.sessionID }} />
               <Composer
                 sessionID={route.sessionID}
-                open={composer.open || (!!session()?.parentID && forms().length === 0)}
+                open={composerVisible()}
                 defaultTab={composer.tab ?? (session()?.parentID ? "subagents" : undefined)}
                 onClose={() => {
                   const parent = session()?.parentID
@@ -1616,7 +1618,7 @@ export function Session(props: {
                 visibleTerminalID={props.visibleTerminalID}
               />
               <Switch>
-                <Match when={composer.open || (!!session()?.parentID && forms().length === 0)}>{null}</Match>
+                <Match when={composerVisible()}>{null}</Match>
                 <Match when={promptedPermissions().length > 0}>
                   <Show when={promptedPermissions()[0]?.id} keyed>
                     {(_) => {
@@ -1981,8 +1983,6 @@ function SessionPartView(props: {
   message: (messageID: string) => SessionMessageInfo | undefined
   images?: boolean
 }) {
-  const config = useConfig()
-  const timestampLayout = () => config.data.session.timestamps ?? "footer"
   const message = createMemo(() => props.message(props.partRef.messageID))
   const part = createMemo(() => {
     const item = message()
@@ -1994,23 +1994,6 @@ function SessionPartView(props: {
       {(item) => (
         <Switch>
           <Match when={item().type === "text"}>
-            <Show
-              when={
-                timestampLayout() !== "footer" &&
-                item() === (message() as SessionMessageAssistant).content.find((part) => part.type === "text")
-              }
-            >
-              <box paddingLeft={3}>
-                <MessageTimestamp
-                  time={
-                    (message() as SessionMessageAssistant).time.completed ??
-                    (message() as SessionMessageAssistant).time.created
-                  }
-                  layout={timestampLayout() as "header" | "divider"}
-                />
-              </box>
-            </Show>
-
             <TextPart
               part={item() as SessionMessageAssistantText}
               message={message() as SessionMessageAssistant}
@@ -2050,7 +2033,6 @@ function AssistantFooter(props: { message: SessionMessageAssistant }) {
   const turn = () => ({ index: ctx.messageIndex(props.message.id), legacy: ctx.legacyTurns() })
   const duration = createMemo(() => SessionTurn.duration(messages(), props.message, turn()))
   const tokensPerSecond = createMemo(() => SessionTurn.tokensPerSecond(messages(), props.message, turn()))
-  const timeToFirstToken = createMemo(() => SessionTurn.timeToFirstToken(messages(), props.message, turn()))
   const interrupted = createMemo(() => props.message.error?.message === "Step interrupted")
   const freeLimit = createMemo(() => props.message.error?.type === "provider.free-limit")
   const limitNotice = useLimitNotice(() => props.message)
@@ -2072,62 +2054,23 @@ function AssistantFooter(props: { message: SessionMessageAssistant }) {
       </Show>
       <AssistantRetry retry={props.message.retry} />
       <box paddingLeft={3} marginTop={props.message.retry || (props.message.error && !interrupted()) ? 1 : 0}>
-        <box flexDirection="row" flexWrap="wrap">
-          <text fg={props.message.error ? theme.text.muted : local.agent.color(props.message.agent)} wrapMode="none">
+        <text>
+          <span style={{ fg: props.message.error ? theme.text.muted : local.agent.color(props.message.agent) }}>
             {Locale.titlecase(props.message.agent)}
-          </text>
-
+          </span>
           <Show when={ctx.terminal.width >= 28}>
-            <text fg={theme.text.muted} wrapMode="none" maxWidth="100%" truncate>
-              {" "}
-              · {model()}
-            </text>
+            <span style={{ fg: theme.text.muted }}> · {model()}</span>
           </Show>
-
           <Show when={duration() && (ctx.terminal.width < 28 || ctx.terminal.width >= 36)}>
-            <text fg={theme.text.muted} wrapMode="none">
-              {" "}
-              · {Locale.duration(duration())}
-            </text>
+            <span style={{ fg: theme.text.muted }}> · {Locale.duration(duration())}</span>
           </Show>
-
-          <Show
-            when={
-              (config.data.session.timestamps ?? "footer") === "footer" ||
-              !props.message.content.some((part) => part.type === "text")
-            }
-          >
-            <text fg={theme.text.muted} wrapMode="none">
-              {" · "}
-              {Locale.time(props.message.time.completed ?? props.message.time.created)}
-            </text>
-          </Show>
-
           <Show when={config.data.session.tps && tokensPerSecond()}>
-            {(value) => (
-              <text fg={theme.text.muted} wrapMode="none">
-                {" "}
-                · {value().toFixed(1)} tok/s
-              </text>
-            )}
+            {(value) => <span style={{ fg: theme.text.muted }}> · {value().toFixed(1)} tok/s</span>}
           </Show>
-
-          <Show when={config.data.session.tps && ctx.terminal.width >= 36 && timeToFirstToken()}>
-            {(value) => (
-              <text fg={theme.text.muted} wrapMode="none">
-                {" "}
-                · {Locale.duration(value())} ttft
-              </text>
-            )}
-          </Show>
-
           <Show when={interrupted()}>
-            <text fg={theme.text.muted} wrapMode="none">
-              {" "}
-              · interrupted
-            </text>
+            <span style={{ fg: theme.text.muted }}> · interrupted</span>
           </Show>
-        </box>
+        </text>
       </box>
     </>
   )
@@ -2418,8 +2361,6 @@ function ShellMessage(props: { message: Extract<SessionMessageInfo, { type: "she
 
 function UserMessage(props: { message: SessionMessageUser }) {
   const ctx = use()
-  const config = useConfig()
-  const timestampLayout = () => config.data.session.timestamps ?? "footer"
   const newDesigns = useNewDesigns()
   const data = useData()
   const local = useLocal()
@@ -2448,10 +2389,6 @@ function UserMessage(props: { message: SessionMessageUser }) {
 
   return (
     <Show when={props.message.text.trim() || files().length || skills().length}>
-      <Show when={timestampLayout() === "header"}>
-        <MessageTimestamp time={props.message.time.created} layout="header" />
-      </Show>
-
       <box
         border={["left"]}
         borderColor={delivery() ? theme.border.base : color()}
@@ -2495,16 +2432,7 @@ function UserMessage(props: { message: SessionMessageUser }) {
           backgroundColor={hover() ? theme.decrease(theme.background.raised.base) : theme.background.raised.base}
           flexShrink={0}
         >
-          <Show when={timestampLayout() === "divider"}>
-            <MessageTimestamp time={props.message.time.created} layout="divider" />
-          </Show>
-
           <text fg={theme.text.base}>{props.message.text}</text>
-
-          <Show when={timestampLayout() === "footer"}>
-            <text fg={theme.text.muted}>{Locale.time(props.message.time.created)}</text>
-          </Show>
-
           <Show when={skills().length}>
             <box flexDirection="row" paddingTop={1} gap={1} flexWrap="wrap">
               <For each={skills()}>
@@ -3144,7 +3072,7 @@ function ShellDisplay(props: {
           const next = stripAnsi(output + response.data.output)
           if (next.length <= SHELL_DISPLAY_LIMIT) return next
           setOutputTruncated(true)
-          return next.slice(-SHELL_DISPLAY_LIMIT)
+          return TextBoundary.tail(next, SHELL_DISPLAY_LIMIT)
         })
       if (response.data.cursor <= cursor) break
       cursor = response.data.cursor

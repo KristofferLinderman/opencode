@@ -13,10 +13,6 @@ import { InstructionDiscovery } from "../../instruction-discovery.js"
 import { Instructions } from "../../instructions/index.js"
 import { Location } from "../../location.js"
 
-// Project instruction files in preference order: a directory with both uses only AGENTS.md;
-// CLAUDE.md is the fallback so repos set up for Claude Code still load their instructions.
-const PROJECT_FILES = ["AGENTS.md", "CLAUDE.md"] as const
-
 type Loaded =
   | { readonly type: "available"; readonly files: InstructionDiscovery.File[] }
   | { readonly type: "unavailable" }
@@ -43,6 +39,10 @@ export const Plugin = define({
       const project = discovery.project && FSUtil.contains(root, start)
       const stop = FSUtil.contains(home, start) ? home : root
       const globalFile = yield* fs.resolve(join(global.config, "AGENTS.md"))
+      // ~/.claude/CLAUDE.md stands in for the global AGENTS.md when it is missing.
+      const claudeGlobalFile = yield* fs.resolve(join(home, ".claude", "CLAUDE.md"))
+      const names = InstructionDiscovery.filenames(discovery)
+      const globalFiles = discovery.claude ? [globalFile, claudeGlobalFile] : [globalFile]
       const loaded: { current: Loaded } = { current: { type: "available", files: [] } }
       const configured: { sources: string[]; remote: Map<string, InstructionDiscovery.File> } = {
         sources: [],
@@ -53,11 +53,11 @@ export const Plugin = define({
       // The ancestor walk can reach the global file when the location sits
       // beneath the global config dir; global: false excludes it there too.
       const candidates = [
-        ...(discovery.global ? [globalFile] : []),
+        ...(discovery.global ? globalFiles : []),
         ...(project
           ? ancestorDirectories(start, stop)
-              .flatMap((directory) => PROJECT_FILES.map((name) => join(directory, name)))
-              .filter((file) => discovery.global || file !== globalFile)
+              .flatMap((directory) => names.map((name) => join(directory, name)))
+              .filter((file) => discovery.global || !globalFiles.includes(file))
           : []),
       ]
       for (const file of new Set(candidates)) {
@@ -80,18 +80,20 @@ export const Plugin = define({
       })
 
       const globalSource = Effect.fn("ConfigInstructionPlugin.globalSource")(function* () {
-        if (!discovery.global || !(yield* fs.isFile(globalFile))) return []
-        const file = yield* read(globalFile)
-        return file instanceof InstructionDiscovery.File ? [file] : []
+        if (!discovery.global) return []
+        for (const candidate of globalFiles) {
+          if (!(yield* fs.isFile(candidate))) continue
+          const file = yield* read(candidate)
+          return file instanceof InstructionDiscovery.File ? [file] : []
+        }
+        return []
       })
 
       const projectSource = Effect.fn("ConfigInstructionPlugin.projectSource")(function* () {
         if (!project) return []
-        const walked = yield* Effect.forEach(
-          preferPerDirectory(yield* fs.up({ targets: [...PROJECT_FILES], start, stop, type: "file" })),
-          fs.resolve,
-        )
-        const discovered = new Set(walked.filter((file) => discovery.global || file !== globalFile))
+        const found = yield* fs.up({ targets: names, start, stop, type: "file" })
+        const walked = yield* Effect.forEach(InstructionDiscovery.preferAgents(found), fs.resolve)
+        const discovered = new Set(walked.filter((file) => discovery.global || !globalFiles.includes(file)))
         const files = yield* Effect.forEach(discovered, read, { concurrency: "unbounded" })
         if (files.some((file) => file === undefined)) return Instructions.unavailable
         return files.filter((file) => file instanceof InstructionDiscovery.File)
@@ -244,12 +246,6 @@ export const Plugin = define({
     )
   }),
 })
-
-// `fs.up` lists matches per directory in PROJECT_FILES order, so the first one per directory wins.
-function preferPerDirectory(files: readonly string[]): string[] {
-  const seen = new Set<string>()
-  return files.filter((file) => !seen.has(dirname(file)) && seen.add(dirname(file)))
-}
 
 // `start` keeps the client's spelling while `stop` may come from git, so a Windows drive
 // letter can differ only in case (`c:\repo` vs `C:\repo`). Compare the way FSUtil.contains
