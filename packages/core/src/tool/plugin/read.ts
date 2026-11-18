@@ -16,7 +16,8 @@ import { ReadToolFileSystem } from "../read-filesystem.js"
 import { Environment } from "../../environment/index.js"
 
 export const name = "read"
-const FILENAME = "AGENTS.md"
+// AGENTS.md wins; CLAUDE.md is the fallback for directories without one.
+const FILENAMES = ["AGENTS.md", "CLAUDE.md"]
 const LocationInput = Schema.Struct({
   path: Schema.String.annotate({ description: "File or directory to read" }),
   offset: ReadToolFileSystem.PageInput.fields.offset.annotate({
@@ -126,7 +127,7 @@ export const Plugin = {
                     }),
                 ),
               )
-              // After a successful read, discover nearby AGENTS.md walking up to the Location
+              // After a successful read, discover nearby AGENTS.md (else CLAUDE.md) walking up to the Location
               // root exclusive and inject them as durable synthetic instructions. For a
               // directory listing the walk starts at the directory itself (so its own AGENTS.md
               // is discovered); for a file it starts at the file's dirname. External reads are
@@ -137,12 +138,13 @@ export const Plugin = {
                 const root = yield* fs.resolve(location.directory)
                 // The Location and its ancestors are already supplied by initial instructions,
                 // even when an upward walk from elsewhere in the project cannot reach root.
-                const discovered = yield* fs.up({
-                  targets: [FILENAME],
+                const seen = new Set<string>()
+                const discovered = (yield* fs.up({
+                  targets: FILENAMES,
                   start: result.content.type === "list-page" ? resolved : dirname(resolved),
                   stop: root,
                   type: "file",
-                })
+                })).filter((file) => !seen.has(dirname(file)) && seen.add(dirname(file)))
                 const candidates = (yield* Effect.forEach(discovered, fs.resolve)).filter(
                   (file) => !FSUtil.contains(dirname(file), root) && file !== resolved,
                 )

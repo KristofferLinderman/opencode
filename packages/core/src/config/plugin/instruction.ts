@@ -13,6 +13,10 @@ import { InstructionDiscovery } from "../../instruction-discovery.js"
 import { Instructions } from "../../instructions/index.js"
 import { Location } from "../../location.js"
 
+// Project instruction files in preference order: a directory with both uses only AGENTS.md;
+// CLAUDE.md is the fallback so repos set up for Claude Code still load their instructions.
+const PROJECT_FILES = ["AGENTS.md", "CLAUDE.md"] as const
+
 type Loaded =
   | { readonly type: "available"; readonly files: InstructionDiscovery.File[] }
   | { readonly type: "unavailable" }
@@ -52,7 +56,7 @@ export const Plugin = define({
         ...(discovery.global ? [globalFile] : []),
         ...(project
           ? ancestorDirectories(start, stop)
-              .map((directory) => join(directory, "AGENTS.md"))
+              .flatMap((directory) => PROJECT_FILES.map((name) => join(directory, name)))
               .filter((file) => discovery.global || file !== globalFile)
           : []),
       ]
@@ -84,7 +88,7 @@ export const Plugin = define({
       const projectSource = Effect.fn("ConfigInstructionPlugin.projectSource")(function* () {
         if (!project) return []
         const walked = yield* Effect.forEach(
-          yield* fs.up({ targets: ["AGENTS.md"], start, stop, type: "file" }),
+          preferPerDirectory(yield* fs.up({ targets: [...PROJECT_FILES], start, stop, type: "file" })),
           fs.resolve,
         )
         const discovered = new Set(walked.filter((file) => discovery.global || file !== globalFile))
@@ -240,6 +244,12 @@ export const Plugin = define({
     )
   }),
 })
+
+// `fs.up` lists matches per directory in PROJECT_FILES order, so the first one per directory wins.
+function preferPerDirectory(files: readonly string[]): string[] {
+  const seen = new Set<string>()
+  return files.filter((file) => !seen.has(dirname(file)) && seen.add(dirname(file)))
+}
 
 // `start` keeps the client's spelling while `stop` may come from git, so a Windows drive
 // letter can differ only in case (`c:\repo` vs `C:\repo`). Compare the way FSUtil.contains
