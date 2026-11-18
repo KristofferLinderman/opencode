@@ -6,6 +6,7 @@ import { Global } from "@opencode/util/global"
 import { createEventStream, createFetch, directory, json } from "./fixture/tui-client"
 import { tmpdir } from "./fixture/fixture"
 import { waitForHighlightedFrame } from "./fixture/frame"
+import { Locale } from "../src/util/locale"
 
 test.each([
   "bottom",
@@ -48,13 +49,13 @@ test.each([
           model: { providerID: "demo", id: "demo-model" },
           content: [{ type: "text", text: `History message ${String(index).padStart(4, "0")}` }],
           finish: "stop",
-          time: { created: index, completed: index + 1 },
+          time: { created: index * 60_000, completed: index * 60_000 + 90_000 },
         }
       : {
           id: `message-${index}`,
           type: "user",
           text: `History message ${String(index).padStart(4, "0")}`,
-          time: { created: index },
+          time: { created: index * 60_000 },
         },
   )
   const pages: { end: number; limit: number }[] = []
@@ -112,7 +113,9 @@ test.each([
     }).pipe(Effect.provide(Global.layerWith({ state: state.path })), Effect.provide(FileSystem.layerNoop({}))),
   )
   try {
-    await waitForHighlightedFrame(setup, (frame) => frame.includes("History message 0399"))
+    const initial = await waitForHighlightedFrame(setup, (frame) => frame.includes("History message 0399"))
+    if (mode === "bottom") expect(initial).toContain(Locale.time(399 * 60_000))
+    if (mode === "mixed") expect(initial).toContain(Locale.time(399 * 60_000 + 90_000))
     const findScrollBox = (root: Renderable): ScrollBoxRenderable | undefined =>
       root instanceof ScrollBoxRenderable && root.getRenderable("message-399")
         ? root

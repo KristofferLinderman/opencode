@@ -123,6 +123,20 @@ test("shows the TPS default in session settings", () => {
   expect(setting?.default).toBe(true)
 })
 
+test("offers and validates the three timestamp layouts", () => {
+  expect(settings.find((setting) => setting.path.join(".") === "session.timestamps")).toMatchObject({
+    title: "Timestamp layout",
+    category: "Session",
+    default: "footer",
+    values: ["footer", "header", "divider"],
+  })
+  for (const timestamps of ["footer", "header", "divider"] as const) {
+    expect(decodeInfo({ session: { timestamps } })).toEqual({ session: { timestamps } })
+    expect(resolve({ session: { timestamps } }, { terminalSuspend: true }).session.timestamps).toBe(timestamps)
+  }
+  expect(() => decodeInfo({ session: { timestamps: "unknown" } })).toThrow()
+})
+
 test("shows transcript verbosity in session settings", () => {
   expect(settings.find((setting) => setting.path.join(".") === "session.verbosity")).toMatchObject({
     category: "Session",

@@ -47,6 +47,7 @@ import {
 } from "@opencode/client"
 import { useLocal } from "../../context/local"
 import { Locale } from "../../util/locale"
+import { MessageTimestamp } from "./message-timestamp"
 import { FilePath } from "../../ui/file-path"
 import {
   canonicalToolName,
@@ -1980,6 +1981,8 @@ function SessionPartView(props: {
   message: (messageID: string) => SessionMessageInfo | undefined
   images?: boolean
 }) {
+  const config = useConfig()
+  const timestampLayout = () => config.data.session.timestamps ?? "footer"
   const message = createMemo(() => props.message(props.partRef.messageID))
   const part = createMemo(() => {
     const item = message()
@@ -1991,6 +1994,23 @@ function SessionPartView(props: {
       {(item) => (
         <Switch>
           <Match when={item().type === "text"}>
+            <Show
+              when={
+                timestampLayout() !== "footer" &&
+                item() === (message() as SessionMessageAssistant).content.find((part) => part.type === "text")
+              }
+            >
+              <box paddingLeft={3}>
+                <MessageTimestamp
+                  time={
+                    (message() as SessionMessageAssistant).time.completed ??
+                    (message() as SessionMessageAssistant).time.created
+                  }
+                  layout={timestampLayout() as "header" | "divider"}
+                />
+              </box>
+            </Show>
+
             <TextPart
               part={item() as SessionMessageAssistantText}
               message={message() as SessionMessageAssistant}
@@ -2052,26 +2072,62 @@ function AssistantFooter(props: { message: SessionMessageAssistant }) {
       </Show>
       <AssistantRetry retry={props.message.retry} />
       <box paddingLeft={3} marginTop={props.message.retry || (props.message.error && !interrupted()) ? 1 : 0}>
-        <text>
-          <span style={{ fg: props.message.error ? theme.text.muted : local.agent.color(props.message.agent) }}>
+        <box flexDirection="row" flexWrap="wrap">
+          <text fg={props.message.error ? theme.text.muted : local.agent.color(props.message.agent)} wrapMode="none">
             {Locale.titlecase(props.message.agent)}
-          </span>
+          </text>
+
           <Show when={ctx.terminal.width >= 28}>
-            <span style={{ fg: theme.text.muted }}> · {model()}</span>
+            <text fg={theme.text.muted} wrapMode="none" maxWidth="100%" truncate>
+              {" "}
+              · {model()}
+            </text>
           </Show>
+
           <Show when={duration() && (ctx.terminal.width < 28 || ctx.terminal.width >= 36)}>
-            <span style={{ fg: theme.text.muted }}> · {Locale.duration(duration())}</span>
+            <text fg={theme.text.muted} wrapMode="none">
+              {" "}
+              · {Locale.duration(duration())}
+            </text>
           </Show>
+
+          <Show
+            when={
+              (config.data.session.timestamps ?? "footer") === "footer" ||
+              !props.message.content.some((part) => part.type === "text")
+            }
+          >
+            <text fg={theme.text.muted} wrapMode="none">
+              {" · "}
+              {Locale.time(props.message.time.completed ?? props.message.time.created)}
+            </text>
+          </Show>
+
           <Show when={config.data.session.tps && tokensPerSecond()}>
-            {(value) => <span style={{ fg: theme.text.muted }}> · {value().toFixed(1)} tok/s</span>}
+            {(value) => (
+              <text fg={theme.text.muted} wrapMode="none">
+                {" "}
+                · {value().toFixed(1)} tok/s
+              </text>
+            )}
           </Show>
+
           <Show when={config.data.session.tps && ctx.terminal.width >= 36 && timeToFirstToken()}>
-            {(value) => <span style={{ fg: theme.text.muted }}> · {Locale.duration(value())} ttft</span>}
+            {(value) => (
+              <text fg={theme.text.muted} wrapMode="none">
+                {" "}
+                · {Locale.duration(value())} ttft
+              </text>
+            )}
           </Show>
+
           <Show when={interrupted()}>
-            <span style={{ fg: theme.text.muted }}> · interrupted</span>
+            <text fg={theme.text.muted} wrapMode="none">
+              {" "}
+              · interrupted
+            </text>
           </Show>
-        </text>
+        </box>
       </box>
     </>
   )
@@ -2362,6 +2418,8 @@ function ShellMessage(props: { message: Extract<SessionMessageInfo, { type: "she
 
 function UserMessage(props: { message: SessionMessageUser }) {
   const ctx = use()
+  const config = useConfig()
+  const timestampLayout = () => config.data.session.timestamps ?? "footer"
   const newDesigns = useNewDesigns()
   const data = useData()
   const local = useLocal()
@@ -2390,6 +2448,10 @@ function UserMessage(props: { message: SessionMessageUser }) {
 
   return (
     <Show when={props.message.text.trim() || files().length || skills().length}>
+      <Show when={timestampLayout() === "header"}>
+        <MessageTimestamp time={props.message.time.created} layout="header" />
+      </Show>
+
       <box
         border={["left"]}
         borderColor={delivery() ? theme.border.base : color()}
@@ -2433,7 +2495,16 @@ function UserMessage(props: { message: SessionMessageUser }) {
           backgroundColor={hover() ? theme.decrease(theme.background.raised.base) : theme.background.raised.base}
           flexShrink={0}
         >
+          <Show when={timestampLayout() === "divider"}>
+            <MessageTimestamp time={props.message.time.created} layout="divider" />
+          </Show>
+
           <text fg={theme.text.base}>{props.message.text}</text>
+
+          <Show when={timestampLayout() === "footer"}>
+            <text fg={theme.text.muted}>{Locale.time(props.message.time.created)}</text>
+          </Show>
+
           <Show when={skills().length}>
             <box flexDirection="row" paddingTop={1} gap={1} flexWrap="wrap">
               <For each={skills()}>

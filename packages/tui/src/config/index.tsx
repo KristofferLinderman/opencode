@@ -174,6 +174,9 @@ export const Info = Schema.Struct({
       tps: Schema.optional(Schema.Boolean).annotate({
         description: "Show output tokens per second while the model streams",
       }),
+      timestamps: Schema.optional(Schema.Literals(["footer", "header", "divider"])).annotate({
+        description: "Message timestamp layout: compact footer, right-aligned header, or centered divider",
+      }),
       markdown: Schema.optional(Schema.Literals(["source", "rendered"])).annotate({
         description: "Show Markdown syntax markers or conceal them in rendered transcript content",
       }),

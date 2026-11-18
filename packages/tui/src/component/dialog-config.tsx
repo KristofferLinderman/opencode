@@ -142,6 +142,16 @@ export const settings: Setting[] = [
     keywords: ["tokens per second", "throughput"],
   },
   {
+    title: "Timestamp layout",
+    category: "Session",
+    path: ["session", "timestamps"],
+    description: "Where sent and completion times appear; updates existing history immediately",
+    default: "footer",
+    values: ["footer", "header", "divider"],
+    labels: ["compact footer", "right-aligned header", "centered divider"],
+    keywords: ["time", "timestamps", "sent", "completed", "clock"],
+  },
+  {
     title: "New session location",
     category: "Session",
     path: ["session", "new_location"],
