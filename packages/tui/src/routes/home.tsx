@@ -1,6 +1,7 @@
 import { Prompt, type PromptRef } from "../component/prompt"
 import { createEffect, createMemo, createSignal, onMount, Show, untrack } from "solid-js"
 import { Logo } from "../component/logo"
+import { Panda } from "../component/panda"
 import { useArgs } from "../context/args"
 import { useRouteData } from "../context/route"
 import { usePromptRef } from "../context/prompt"
@@ -99,7 +100,9 @@ export function Home() {
         >
           <Logo />
 
-          <text selectable={false}>🐼</text>
+          <Show when={dimensions().height >= 12 && dimensions().width >= 60}>
+            <Panda />
+          </Show>
         </box>
         <box height={1} flexShrink={0} />
         <UpdateNotification width={logoWidth()} />
