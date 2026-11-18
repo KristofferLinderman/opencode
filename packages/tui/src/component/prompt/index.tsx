@@ -1644,7 +1644,7 @@ export function Prompt(props: PromptProps) {
   const locationLabelDisplay = createMemo(() => {
     const label = locationLabel()
     if (!label) return
-    return truncateFilePath(label, locationWidth())
+    return truncateFilePath(label, Math.max(1, locationWidth() - 3))
   })
   const locationActions = useWorkingDirectoryActions({
     directory: () => footerLocation()?.directory,
@@ -1966,7 +1966,7 @@ export function Prompt(props: PromptProps) {
                           onMouseOut={locationActions.onMouseOut}
                           onMouseUp={locationActions.onMouseUp}
                         >
-                          {location()}
+                          🐼 {location()}
                         </text>
                       )}
                     </Show>
