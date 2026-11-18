@@ -147,7 +147,8 @@ const make = Effect.gen(function* () {
   const appProcess = yield* AppProcess.Service
   const flock = yield* EffectFlock.Service
   const installedVersion = yield* Ref.make(OPENCODE_VERSION)
-  const channel = OPENCODE_CHANNEL.replace(/[^a-zA-Z0-9._-]/g, "-")
+  // This personal fork tracks official stable updates without changing its dev runtime channel.
+  const channel = "latest"
   const executable = yield* fs.realPath(process.execPath).pipe(Effect.orElseSucceed(() => process.execPath))
   const installedPackage = yield* Effect.gen(function* () {
     const directory = path.dirname(path.dirname(executable))
@@ -674,12 +675,7 @@ const make = Effect.gen(function* () {
         message: managedMessage(managedError(installedOwner, `${data.package}@${data.version}`)),
       }
     }
-    if (!detected)
-      return {
-        type: "unavailable" as const,
-        message:
-          "Could not detect the installation method. Update with your package manager or download the latest release.",
-      }
+    // A local fork can check releases even though it has no official install method.
     const version = yield* latest(detected)
     if (!parseReleaseVersion(version)) return yield* Effect.fail(new Error(`Invalid version: ${version}`))
     const current = yield* Ref.get(installedVersion)

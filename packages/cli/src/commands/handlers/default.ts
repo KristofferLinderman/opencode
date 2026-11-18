@@ -15,6 +15,7 @@ import { Service } from "@opencode/client/effect/service"
 import { OpenCode } from "@opencode/client/promise"
 import { findSession } from "../../session-target"
 import { errorMessage } from "../../util/error"
+import { forkUpdatePrompt } from "../../services/fork-update"
 
 export default Runtime.handler(Commands, (input) =>
   Effect.gen(function* () {
@@ -124,6 +125,7 @@ export default Runtime.handler(Commands, (input) =>
         update: (update) => runPromise(config.update(update)),
       },
       updater: {
+        prompt: forkUpdatePrompt,
         remote: requestedServer !== undefined,
         subscribe: (notify) => {
           if (latest) notify(latest)
