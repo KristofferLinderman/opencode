@@ -323,6 +323,10 @@ import type {
   ExperimentalUsageLimitsOutput,
   ConfigGetInput,
   ConfigGetOutput,
+  ConfigThemeInput,
+  ConfigThemeOutput,
+  ConfigUpdateThemeInput,
+  ConfigUpdateThemeOutput,
   ConfigShellsOutput,
   ExperimentalConfigUpdateInput,
   ExperimentalConfigUpdateOutput,
@@ -2726,6 +2730,31 @@ export function make(options: ClientOptions) {
             query: { location: input?.["location"] },
             successStatus: 200,
             declaredStatuses: [400, 401, 404],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      theme: (input?: ConfigThemeInput, requestOptions?: RequestOptions) =>
+        request<ConfigThemeOutput>(
+          {
+            method: "GET",
+            path: `/api/config/theme`,
+            query: { location: input?.["location"] },
+            successStatus: 200,
+            declaredStatuses: [400, 401, 404],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      updateTheme: (input: ConfigUpdateThemeInput, requestOptions?: RequestOptions) =>
+        request<ConfigUpdateThemeOutput>(
+          {
+            method: "PATCH",
+            path: `/api/config/theme`,
+            query: { location: input["location"] },
+            body: { path: input["path"], theme: input["theme"] },
+            successStatus: 200,
+            declaredStatuses: [400, 401, 404, 409],
             empty: false,
           },
           requestOptions,

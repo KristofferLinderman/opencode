@@ -21,6 +21,26 @@ export const ConfigGroup = HttpApiGroup.make("server.config")
       ),
   )
   .add(
+    HttpApiEndpoint.get("config.theme", "/api/config/theme", {
+      query: LocationQuery,
+      success: Config.ThemeScope,
+    })
+      .annotateMerge(locationQueryOpenApi)
+      .annotateMerge(OpenApi.annotations({ identifier: "config.theme", summary: "Get the inherited terminal theme" })),
+  )
+  .add(
+    HttpApiEndpoint.patch("config.updateTheme", "/api/config/theme", {
+      query: LocationQuery,
+      payload: Config.ThemePatch,
+      success: Config.ThemeScope,
+      error: Config.ThemeScopeChangedError,
+    })
+      .annotateMerge(locationQueryOpenApi)
+      .annotateMerge(
+        OpenApi.annotations({ identifier: "config.updateTheme", summary: "Update the active theme scope" }),
+      ),
+  )
+  .add(
     HttpApiEndpoint.get("config.shells", "/api/config/shell", {
       success: Schema.Array(ConfigShell.Option),
     }).annotateMerge(

@@ -1,5 +1,6 @@
 import { CliRenderEvents, SyntaxStyle, type TerminalColors } from "@opentui/core"
 import { useRenderer } from "@opentui/solid"
+import type { ConfigTheme, ConfigThemeScope } from "@opencode/client"
 import {
   generateSyntax,
   resolveThemeDocument,
@@ -20,13 +21,25 @@ import {
 import { generateSystem, terminalMode } from "../theme/system"
 import { discoverThemes } from "../theme/discovery"
 import { createComponentTheme, type ComponentTheme } from "../theme/component"
-import { createEffect, createMemo, createSignal, onCleanup, onMount, type Accessor, type ParentProps } from "solid-js"
+import {
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  onCleanup,
+  type Accessor,
+  type ParentProps,
+} from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { createSimpleContext } from "./helper"
 import { useConfig, useNewDesigns } from "../config"
 import { useStorageOptional } from "./storage"
 import { DevTools } from "../devtools"
 import { configDirectories } from "../util/config-directories"
+import { useToast } from "../ui/toast"
+import { useClient } from "./client"
+import { useData } from "./data"
+import { useRoute } from "./route"
 
 const themePerformance = DevTools.register({ id: "theme-performance", title: "Theme performance" })
 export type ThemeError = { name: string; error: Error }
@@ -61,13 +74,20 @@ function createThemeErrors() {
 const themeErrors = createThemeErrors()
 
 export type ThemeSource = Readonly<{
-  discover(): Promise<Record<string, unknown>>
+  discover(directory: string): Promise<Record<string, unknown>>
   subscribeRefresh?(refresh: () => void): () => void
 }>
 
+type ThemeScopes = {
+  directory: Accessor<string>
+  current: Accessor<ConfigThemeScope | undefined>
+  update: (path: string, theme: ConfigTheme) => Promise<void>
+  error: (cause: unknown) => void
+}
+
 export const createThemeSource = (config: string): ThemeSource => ({
-  async discover() {
-    return discoverThemes(configDirectories(config, process.cwd()))
+  async discover(directory) {
+    return discoverThemes(configDirectories(config, directory))
   },
   subscribeRefresh(refresh) {
     process.on("SIGUSR2", refresh)
@@ -98,7 +118,10 @@ type Themes = {
   lock(): void
   unlock(): void
   setMode(mode?: "dark" | "light", persist?: boolean): boolean
-  set(theme: string): boolean
+  preference(): ConfigTheme
+  target(): string
+  preview(theme?: string): void
+  save(theme: ConfigTheme): Promise<void>
   afterPaint(): void
   onError(handler: ThemeErrorHandler): () => void
   readonly ready: boolean
@@ -122,12 +145,16 @@ subscribeThemes(setThemeSources)
 
 const themeContext = createSimpleContext({
   name: "Theme",
-  init: (props: { mode: "dark" | "light"; source: ThemeSource }): ThemeContextValue => {
+  init: (props: { mode: "dark" | "light"; source: ThemeSource; scopes?: ThemeScopes }): ThemeContextValue => {
     const renderer = useRenderer()
     const configState = useConfig()
     const newDesigns = useNewDesigns()
     const config = configState.data
     const themes = props.source
+    const directory = props.scopes?.directory ?? (() => process.cwd())
+    const scoped = () => props.scopes?.current()
+    const preference = createMemo(() => ({ ...config.theme, ...scoped()?.theme }))
+    const [preview, setPreview] = createSignal<string>()
     const cache = useStorageOptional()?.store<{ colors?: TerminalColors }>("system-theme", { initial: {} })
 
     setStore(
@@ -142,33 +169,40 @@ const themeContext = createSimpleContext({
     )
 
     createEffect(() => {
-      const theme = config.theme?.name
-      if (!theme) return
+      const theme = preview() ?? preference().name ?? "opencode"
       setStore("active", theme)
       if (theme === "system") refreshPalette()
     })
 
     createEffect(() => {
-      const mode = config.theme?.mode
+      const mode = preference().mode
       if (mode === "dark" || mode === "light") {
         pin(mode, false)
         return
       }
-      if (mode === "system" && store.lock !== undefined) free(false)
+      if (store.lock !== undefined) free(false)
     })
 
-    function syncCustomThemes() {
+    let discovery = 0
+    function syncCustomThemes(directory: string) {
+      const request = ++discovery
       return themes
-        .discover()
+        .discover(directory)
         .then((themes) => {
+          if (request !== discovery) return
           setCustomThemes(themes)
         })
-        .catch(() => setStore("active", "opencode"))
+        .catch(() => {
+          if (request === discovery) setCustomThemes({})
+        })
     }
 
-    onMount(() => {
+    createEffect(() => {
       // Terminal palette queries serialize with frame output. First paint uses the cached palette or built-in fallback.
-      void syncCustomThemes().finally(() => {
+      const discover = syncCustomThemes(directory())
+      const request = discovery
+      void discover.finally(() => {
+        if (request !== discovery) return
         tokens()
         setStore("ready", true)
       })
@@ -232,26 +266,31 @@ const themeContext = createSimpleContext({
       refreshPalette()
     }
 
+    async function save(theme: ConfigTheme) {
+      const current = scoped()
+      if (props.scopes && !current) throw new Error("Theme scope is unavailable. Try again.")
+      if (current?.path && props.scopes) return props.scopes.update(current.path, theme)
+      await configState.update((draft) => {
+        draft.theme = { ...draft.theme, ...theme }
+      })
+    }
+
     function pin(mode: "dark" | "light" = store.mode, persist = true) {
+      if (persist) {
+        void save({ mode }).catch(props.scopes?.error ?? (() => {}))
+        return
+      }
       setStore("lock", mode)
       apply(mode)
-      if (!persist) return
-      void configState
-        .update((draft) => {
-          draft.theme = { ...draft.theme, mode }
-        })
-        .catch(() => {})
     }
 
     function free(persist = true) {
+      if (persist) {
+        void save({ mode: "system" }).catch(props.scopes?.error ?? (() => {}))
+        return
+      }
       setStore("lock", undefined)
-      apply(renderer.themeMode ?? store.mode)
-      if (!persist) return
-      void configState
-        .update((draft) => {
-          draft.theme = { ...draft.theme, mode: "system" }
-        })
-        .catch(() => {})
+      apply(renderer.themeMode ?? (palette && terminalMode(palette)) ?? props.mode)
     }
 
     const handleMode = (mode: "dark" | "light") => {
@@ -273,7 +312,7 @@ const themeContext = createSimpleContext({
       themeRefreshTimeouts = THEME_REFRESH_DELAYS.map((delay) =>
         setTimeout(() => {
           refreshPalette()
-          if (delay === THEME_REFRESH_DELAYS[THEME_REFRESH_DELAYS.length - 1]) void syncCustomThemes()
+          if (delay === THEME_REFRESH_DELAYS[THEME_REFRESH_DELAYS.length - 1]) void syncCustomThemes(directory())
         }, delay),
       )
     }
@@ -281,6 +320,7 @@ const themeContext = createSimpleContext({
 
     onCleanup(() => {
       disposed = true
+      discovery++
       renderer.off(CliRenderEvents.THEME_MODE, handleMode)
       renderer.removeInputHandler(handleThemeNotification)
       unsubscribeRefresh?.()
@@ -293,11 +333,13 @@ const themeContext = createSimpleContext({
         newDesigns() ? { opencode2: getOpenCode2Theme(), ...themeSources() } : themeSources(),
     )
     const has = (name: string) => Boolean(name) && available()[name] !== undefined
+    const activeName = () =>
+      has(store.active) ? store.active : config.theme?.name && has(config.theme.name) ? config.theme.name : "opencode"
 
     const initStarted = performance.now()
     const selected = createMemo(() => {
       const sources = available()
-      const name = sources[store.active] ? store.active : "opencode"
+      const name = activeName()
       try {
         return loadTheme(sources[name], name, store.mode, newDesigns())
       } catch (error) {
@@ -337,17 +379,10 @@ const themeContext = createSimpleContext({
         pin(requested, persist)
         return true
       },
-      set(theme: string) {
-        if (!has(theme)) return false
-        setStore("active", theme)
-        if (theme === "system") refreshPalette()
-        void configState
-          .update((draft) => {
-            draft.theme = { ...draft.theme, name: theme }
-          })
-          .catch(() => {})
-        return true
-      },
+      preference,
+      target: () => scoped()?.path ?? (!props.scopes || scoped() ? "Global default" : "Theme scope unavailable"),
+      preview: setPreview,
+      save,
       afterPaint,
       onError: themeErrors.onError,
       get ready() {
@@ -371,6 +406,48 @@ export function useTheme(): ComponentTheme {
   return themeContext.use().current
 }
 export const ThemeProvider = themeContext.provider
+
+export function LocationThemeProvider(props: ParentProps<{ mode: "dark" | "light"; source: ThemeSource }>) {
+  const client = useClient()
+  const data = useData()
+  const route = useRoute()
+  const toast = useToast()
+  const directory = createMemo(
+    () =>
+      (route.data.type === "session" ? data.session.get(route.data.sessionID)?.location.directory : undefined) ??
+      data.location.default().directory,
+  )
+  const [scope, { mutate, refetch }] = createResource(directory, async (directory) => ({
+    directory,
+    scope: await client.api.config.theme({ location: { directory } }).catch(() => undefined),
+  }))
+  onCleanup(
+    client.event.on("config.updated", (event) => {
+      if (!event.location || event.location.directory === directory()) void refetch()
+    }),
+  )
+  onCleanup(client.event.on("server.connected", () => void refetch()))
+  const scopes: ThemeScopes = {
+    directory,
+    current: () => {
+      const current = scope.latest
+      return current?.directory === directory() ? current?.scope : undefined
+    },
+    async update(path, theme) {
+      const active = directory()
+      const updated = await client.api.config.updateTheme({ location: { directory: active }, path, theme })
+      if (directory() !== active) return
+      mutate({ directory: active, scope: updated })
+      await refetch()
+    },
+    error: toast.error,
+  }
+  return (
+    <ThemeProvider mode={props.mode} source={props.source} scopes={scopes}>
+      {props.children}
+    </ThemeProvider>
+  )
+}
 
 /** Switches the ambient theme surface without remounting children; undefined inherits the enclosing view. */
 export function ThemeContextProvider(props: ParentProps<{ context: SurfaceName | undefined }>) {

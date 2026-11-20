@@ -319,6 +319,10 @@ import type {
   ExperimentalUsageLimitsOutput,
   ConfigGetInput,
   ConfigGetOutput,
+  ConfigThemeInput,
+  ConfigThemeOutput,
+  ConfigUpdateThemeInput,
+  ConfigUpdateThemeOutput,
   ConfigShellsOutput,
   ExperimentalConfigUpdateInput,
   ExperimentalConfigUpdateOutput,
@@ -1980,11 +1984,26 @@ const EndpointConfigGet = (raw: RawClient["server.config"]) => (input?: ConfigGe
     raw["config.get"]({ query: { location: input?.["location"] } }).pipe(Effect.mapError(mapClientError)),
   )
 
+const EndpointConfigTheme = (raw: RawClient["server.config"]) => (input?: ConfigThemeInput) =>
+  preserveEffect<ConfigThemeOutput>()(
+    raw["config.theme"]({ query: { location: input?.["location"] } }).pipe(Effect.mapError(mapClientError)),
+  )
+
+const EndpointConfigUpdateTheme = (raw: RawClient["server.config"]) => (input: ConfigUpdateThemeInput) =>
+  preserveEffect<ConfigUpdateThemeOutput>()(
+    raw["config.updateTheme"]({
+      query: { location: input["location"] },
+      payload: { path: input["path"], theme: input["theme"] },
+    }).pipe(Effect.mapError(mapClientError)),
+  )
+
 const EndpointConfigShells = (raw: RawClient["server.config"]) => () =>
   preserveEffect<ConfigShellsOutput>()(raw["config.shells"]({}).pipe(Effect.mapError(mapClientError)))
 
 const adaptGroupConfig = (raw: RawClient["server.config"]) => ({
   get: EndpointConfigGet(raw),
+  theme: EndpointConfigTheme(raw),
+  updateTheme: EndpointConfigUpdateTheme(raw),
   shells: EndpointConfigShells(raw),
 })
 

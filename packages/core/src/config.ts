@@ -1,11 +1,21 @@
 export * as Config from "./config.js"
 
 import { makeLocationNode } from "@opencode/util/effect/app-node"
+import { isRecord } from "@opencode/util/record"
 import path from "path"
 import { isDeepStrictEqual } from "node:util"
 import { applyEdits, modify, type ParseError, parse } from "jsonc-parser"
 import { Context, Effect, FiberMap, Layer, Option, PubSub, Ref, Schema, Semaphore, Stream } from "effect"
-import { Directory, Document, Info, type Patch, type Entry, Event } from "@opencode/schema/config"
+import {
+  Directory,
+  Document,
+  Info,
+  type Patch,
+  type Entry,
+  Event,
+  type ThemePatch,
+  type ThemeScope,
+} from "@opencode/schema/config"
 import { Credential } from "./credential.js"
 import { Bus } from "./bus.js"
 import { Watcher } from "./filesystem/watcher.js"
@@ -46,6 +56,8 @@ export interface Interface {
   readonly changes: () => Stream.Stream<Watcher.Update>
   /** Updates supported global config fields while preserving unrelated JSONC content. */
   readonly update?: (patch: Patch) => Effect.Effect<void, FSUtil.Error>
+  readonly theme?: () => Effect.Effect<ThemeScope>
+  readonly updateTheme?: (patch: ThemePatch) => Effect.Effect<ThemeScope | undefined, FSUtil.Error>
   /**
    * Replaces, or clears with `undefined`, the document an integration connection contributes. It loads right after
    * managed policies: its settings layer below remote, user, and project config, while its policies outrank theirs.
@@ -410,8 +422,8 @@ export const layer = (options?: Options) =>
           const compatibilityChanged =
             !isDeepStrictEqual(sources.claude, discovered.claude) ||
             !isDeepStrictEqual(sources.agents, discovered.agents)
-          if (isDeepStrictEqual(configs, next) && !compatibilityChanged) return
           sources = discovered
+          if (isDeepStrictEqual(configs, next) && !compatibilityChanged) return
           configs = next
           yield* bus.publish(Event.Updated, {})
         },
@@ -489,6 +501,60 @@ export const layer = (options?: Options) =>
         (effect) => updateLock.withPermit(effect),
       )
 
+      function theme(): ThemeScope {
+        const roots = new Map([
+          ...sources.direct.map((file) => [file, path.dirname(file).length] as const),
+          ...sources.project.flatMap((root) =>
+            ConfigDiscovery.names.map(
+              (name) => [AbsolutePath.make(path.join(root.path, name)), path.dirname(root.path).length] as const,
+            ),
+          ),
+        ])
+        const entries = configs.flatMap((entry) => {
+          if (entry.type !== "document" || !entry.path || !entry.info.theme) return []
+          const depth = roots.get(entry.path)
+          return depth === undefined ? [] : [{ path: entry.path, theme: entry.info.theme, depth }]
+        })
+        // A nested directory owns its own theme even when its parent uses the .opencode form.
+        entries.sort((a, b) => a.depth - b.depth)
+        return entries.reduce<ThemeScope>(
+          (scope, entry) => ({ path: entry.path, theme: { ...scope.theme, ...entry.theme } }),
+          { theme: {} },
+        )
+      }
+
+      const updateTheme = Effect.fn("Config.updateTheme")(
+        function* (patch: ThemePatch) {
+          yield* reload().pipe(Effect.provide(context))
+          const filepath = theme().path
+          // The client supplies the displayed target, not a path the server may write arbitrarily.
+          if (!filepath || patch.path !== filepath) return
+          const text = yield* fs.readFileStringSafe(filepath)
+          if (text === undefined) return
+          const errors: ParseError[] = []
+          const document: unknown = parse(text, errors, { allowTrailingComma: true })
+          if (errors.length || !isRecord(document) || !isRecord(document.theme)) return
+          const updated = yield* Effect.try({
+            try: () =>
+              Object.entries(patch.theme).reduce(
+                (result, [key, value]) =>
+                  applyEdits(
+                    result,
+                    modify(result, ["theme", key], value, {
+                      formattingOptions: { tabSize: 2, insertSpaces: true },
+                    }),
+                  ),
+                text,
+              ),
+            catch: (cause) => new FSUtil.FileSystemError({ method: "config.updateTheme", cause }),
+          })
+          if (updated !== text) yield* fs.writeWithDirs(filepath, updated.endsWith("\n") ? updated : `${updated}\n`)
+          yield* reload().pipe(Effect.provide(context))
+          return theme()
+        },
+        (effect) => updateLock.withPermit(effect),
+      )
+
       return Service.of({
         entries: Effect.fnUntraced(function* () {
           return configs
@@ -500,6 +566,8 @@ export const layer = (options?: Options) =>
           }),
         changes: () => Stream.fromPubSub(updates),
         update,
+        theme: () => Effect.sync(theme),
+        updateTheme,
         integration: Effect.fn("Config.integration")(function* (integrationID, document) {
           if (isDeepStrictEqual(integrations.get(integrationID), document)) return
           integrations.delete(integrationID)

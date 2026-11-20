@@ -15981,6 +15981,174 @@
         "summary": "Get configuration"
       }
     },
+    "/api/config/theme": {
+      "get": {
+        "tags": ["config"],
+        "operationId": "config.theme",
+        "parameters": [
+          {
+            "name": "location",
+            "in": "query",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "directory": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            "required": false,
+            "style": "deepObject",
+            "explode": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Config.ThemeScope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Config.ThemeScope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "LocationNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocationNotFoundErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Get the inherited terminal theme"
+      },
+      "patch": {
+        "tags": ["config"],
+        "operationId": "config.updateTheme",
+        "parameters": [
+          {
+            "name": "location",
+            "in": "query",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "directory": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            "required": false,
+            "style": "deepObject",
+            "explode": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Config.ThemeScope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Config.ThemeScope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "LocationNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocationNotFoundErrorEncoded"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ThemeScopeChangedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThemeScopeChangedErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Update the active theme scope",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Config.ThemePatch"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
     "/api/config/shell": {
       "get": {
         "tags": ["config"],
@@ -16994,6 +17162,9 @@
               }
             ]
           },
+          "theme": {
+            "$ref": "#/components/schemas/Config.Theme"
+          },
           "default_agent": {
             "type": "string"
           },
@@ -17931,6 +18102,45 @@
           }
         },
         "required": ["path"],
+        "additionalProperties": false
+      },
+      "Config.Theme": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["system", "dark", "light"]
+          }
+        },
+        "additionalProperties": false
+      },
+      "Config.ThemePatch": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "$ref": "#/components/schemas/AbsolutePath"
+          },
+          "theme": {
+            "$ref": "#/components/schemas/Config.Theme"
+          }
+        },
+        "required": ["path", "theme"],
+        "additionalProperties": false
+      },
+      "Config.ThemeScope": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "$ref": "#/components/schemas/AbsolutePath"
+          },
+          "theme": {
+            "$ref": "#/components/schemas/Config.Theme"
+          }
+        },
+        "required": ["theme"],
         "additionalProperties": false
       },
       "Config.WarmingEncoded": {
@@ -25495,6 +25705,20 @@
       },
       "Snapshot.ID": {
         "type": "string"
+      },
+      "ThemeScopeChangedErrorEncoded": {
+        "type": "object",
+        "properties": {
+          "_tag": {
+            "type": "string",
+            "enum": ["ThemeScopeChangedError"]
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["_tag", "message"],
+        "additionalProperties": false
       },
       "TokenUsage.Info": {
         "type": "object",

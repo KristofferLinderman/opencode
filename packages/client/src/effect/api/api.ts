@@ -2820,6 +2820,20 @@ export type ConfigGetInput = { readonly location?: { readonly directory?: string
 export type ConfigGetOutput = ReadonlyArray<Config.Entry>
 export type ConfigGetOperation<E = never> = (input?: ConfigGetInput) => Effect.Effect<ConfigGetOutput, E>
 
+export type ConfigThemeInput = { readonly location?: { readonly directory?: string | undefined } | undefined }
+export type ConfigThemeOutput = Config.ThemeScope
+export type ConfigThemeOperation<E = never> = (input?: ConfigThemeInput) => Effect.Effect<ConfigThemeOutput, E>
+
+export type ConfigUpdateThemeInput = {
+  readonly location?: { readonly directory?: string | undefined } | undefined
+  readonly path: AbsolutePath
+  readonly theme: Config.Theme
+}
+export type ConfigUpdateThemeOutput = Config.ThemeScope
+export type ConfigUpdateThemeOperation<E = never> = (
+  input: ConfigUpdateThemeInput,
+) => Effect.Effect<ConfigUpdateThemeOutput, E>
+
 export type ConfigShellsOutput = ReadonlyArray<{
   readonly path: string
   readonly name: string
@@ -2829,6 +2843,8 @@ export type ConfigShellsOperation<E = never> = () => Effect.Effect<ConfigShellsO
 
 export interface ConfigApi<E = never> {
   readonly get: ConfigGetOperation<E>
+  readonly theme: ConfigThemeOperation<E>
+  readonly updateTheme: ConfigUpdateThemeOperation<E>
   readonly shells: ConfigShellsOperation<E>
 
   /** @deprecated Use `client.experimental.config.update`. Removed in the next minor. */

@@ -99,6 +99,66 @@ it.live("updates the global shell without replacing unrelated JSONC", () =>
   }),
 )
 
+it.live("inherits terminal themes and writes only to the nearest declared scope", () =>
+  Effect.gen(function* () {
+    const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-theme-scope-")))
+    const global = path.join(tmp.path, "global")
+    const parent = path.join(tmp.path, "work")
+    const child = path.join(parent, "repo")
+    const nested = path.join(child, "src")
+    const sibling = path.join(parent, "other")
+    const outside = path.join(tmp.path, "work-other")
+    const parentFile = path.join(parent, ".opencode", "opencode.json")
+    const childFile = path.join(child, "opencode.jsonc")
+    yield* Effect.promise(() =>
+      Promise.all(
+        [global, path.dirname(parentFile), nested, sibling, outside].map((dir) => fs.mkdir(dir, { recursive: true })),
+      ),
+    )
+    const parentText = '{"theme":{"name":"flexoki","mode":"dark"}}'
+    yield* Effect.promise(() =>
+      Promise.all([
+        fs.writeFile(parentFile, parentText),
+        fs.writeFile(childFile, '{\n  // keep this comment\n  "theme": { "mode": "light" }\n}\n'),
+        fs.writeFile(path.join(nested, "opencode.json"), '{"model":"provider/model"}'),
+      ]),
+    )
+    const server = yield* startServer(global)
+    function request(directory: string, patch?: { path: string; theme: Config.Theme }) {
+      const url = new URL("/api/config/theme", server.base)
+      url.searchParams.set("location[directory]", directory)
+      return Effect.promise(() =>
+        fetch(url, {
+          method: patch ? "PATCH" : "GET",
+          headers: { ...server.headers, "content-type": "application/json" },
+          body: patch ? JSON.stringify(patch) : undefined,
+        }),
+      )
+    }
+    const inherited = yield* request(nested)
+    expect(yield* Effect.promise(() => inherited.json())).toEqual({
+      path: childFile,
+      theme: { name: "flexoki", mode: "light" },
+    })
+    expect((yield* request(nested, { path: parentFile, theme: { name: "opencode" } })).status).toBe(409)
+    const saved = yield* request(nested, { path: childFile, theme: { name: "opencode" } })
+    expect(saved.status).toBe(200)
+    expect(yield* Effect.promise(() => saved.json())).toEqual({
+      path: childFile,
+      theme: { name: "opencode", mode: "light" },
+    })
+    expect(yield* Effect.promise(() => fs.readFile(childFile, "utf8"))).toContain("// keep this comment")
+    expect(yield* Effect.promise(() => fs.readFile(parentFile, "utf8"))).toBe(parentText)
+    const shared = yield* request(sibling)
+    expect(yield* Effect.promise(() => shared.json())).toEqual({
+      path: parentFile,
+      theme: { name: "flexoki", mode: "dark" },
+    })
+    const fallback = yield* request(outside)
+    expect(yield* Effect.promise(() => fallback.json())).toEqual({ theme: {} })
+  }),
+)
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }

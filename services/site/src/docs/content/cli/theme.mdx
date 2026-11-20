@@ -23,6 +23,21 @@ You can also set the theme and mode in your global [CLI settings](/cli/config):
 
 Run `/themes` to change themes without opening settings.
 
+## Directory themes
+
+Add `theme` to a directory's `opencode.json` or `opencode.jsonc` (directly or under `.opencode`) to override the global CLI theme:
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "theme": { "name": "flexoki", "mode": "dark" }
+}
+```
+
+The TUI follows the active session's directory, or the launch directory on the home screen. Descendants inherit both fields unless a closer config overrides them. At the same directory level, `.opencode` files take precedence over direct files, and `.jsonc` takes precedence over `.json` within each pair. Worktrees outside the directory do not inherit its theme.
+
+`/themes` shows where it will save. It previews without writing and saves only on selection. Settings changes to theme name or mode update the closest config that declares a `theme` section, or the global `cli.json` if no directory declares one. A scoped field takes precedence over its global CLI fallback, including inline CLI settings.
+
 ## System colors
 
 When OpenCode can read your terminal palette, the theme picker includes the `system` theme. It derives colors from your terminal's foreground, background, and ANSI palette.

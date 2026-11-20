@@ -413,7 +413,8 @@ export function DialogConfig(props: { current?: string }) {
       if (!result || typeof result !== "object") return undefined
       return (result as Record<string, unknown>)[key]
     }, config.data)
-    if (setting.path.join(".") === "theme.name") return current ?? themes.selected
+    if (setting.path.join(".") === "theme.name") return themes.selected
+    if (setting.path.join(".") === "theme.mode") return themes.preference().mode ?? setting.default
     return current ?? setting.default
   }
   const values = (setting: Setting) =>
@@ -452,6 +453,13 @@ export function DialogConfig(props: { current?: string }) {
       : Math.min(setting.max!, Math.max(setting.min!, Number(current) + direction * setting.step!))
     if (next === current) return
     setSaving(true)
+    if (setting.path[0] === "theme") {
+      await themes
+        .save(setting.path[1] === "name" ? { name: String(next) } : { mode: next as "system" | "dark" | "light" })
+        .catch(toast.error)
+        .finally(() => setSaving(false))
+      return
+    }
     await config
       .update((draft) => {
         const parent = setting.path.slice(0, -1).reduce<Record<string, unknown>>((result, key) => {

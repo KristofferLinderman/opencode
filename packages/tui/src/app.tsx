@@ -83,7 +83,7 @@ import { createPaneResize } from "./ui/pane-resize"
 import { PaneResizeHandle } from "./ui/pane-resize-handle"
 import { clickedLink } from "./ui/link"
 import { ThemeErrorToast } from "./component/theme-error-toast"
-import { createThemeSource, ThemeProvider, useTheme, useThemes } from "./context/theme"
+import { createThemeSource, LocationThemeProvider, useTheme, useThemes } from "./context/theme"
 import { Home } from "./routes/home"
 import { PromptHistoryProvider } from "./prompt/history"
 import { FrecencyProvider } from "./prompt/frecency"
@@ -413,7 +413,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
                                                   <LocationProvider>
                                                     <SessionTabsProvider>
                                                       <SessionTerminalsProvider>
-                                                        <ThemeProvider
+                                                        <LocationThemeProvider
                                                           mode={mode}
                                                           source={createThemeSource(global.config)}
                                                         >
@@ -447,7 +447,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
                                                               </DialogProvider>
                                                             </PromptStashProvider>
                                                           </LocalProvider>
-                                                        </ThemeProvider>
+                                                        </LocationThemeProvider>
                                                       </SessionTerminalsProvider>
                                                     </SessionTabsProvider>
                                                   </LocationProvider>

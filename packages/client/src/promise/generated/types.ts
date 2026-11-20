@@ -374,6 +374,8 @@ export type WebSearchResult = { url: string; title?: string; content?: string; t
 
 export type UsageLimitsMeter = { percent: number; limited: boolean; resetsAt: number }
 
+export type ConfigTheme = { name?: string; mode?: "system" | "dark" | "light" }
+
 export type McpProtocol = "legacy" | "auto" | "2026-07-28"
 
 export type ConfigCompactionPercent = string
@@ -1010,6 +1012,8 @@ export type VcsInfo = { provider?: string; branch: VcsBranch }
 export type WebSearchProvider = { id: WebSearchID; name: string }
 
 export type UsageLimitsGo = { rolling: UsageLimitsMeter; weekly: UsageLimitsMeter; monthly: UsageLimitsMeter }
+
+export type ConfigThemeScope = { path?: AbsolutePath; theme: ConfigTheme }
 
 export type ConfigModelCapabilities = {
   tools?: boolean
@@ -2443,6 +2447,7 @@ export type ConfigEntry =
         $schema?: string
         shell?: string
         model?: string | { providerID: string; model: string; variant?: string }
+        theme?: ConfigTheme
         default_agent?: string
         update?: "disable" | "notify" | "auto"
         share?: "manual" | "auto" | "disabled"
@@ -3364,6 +3369,10 @@ export type VcsInitNotSupportedError = {
 }
 export const isVcsInitNotSupportedError = (value: unknown): value is VcsInitNotSupportedError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "VcsInitNotSupportedError"
+
+export type ThemeScopeChangedError = { readonly _tag: "ThemeScopeChangedError"; readonly message: string }
+export const isThemeScopeChangedError = (value: unknown): value is ThemeScopeChangedError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "ThemeScopeChangedError"
 
 export type ServerInfoOutput = ServerInfo
 
@@ -4940,6 +4949,18 @@ export type ExperimentalUsageLimitsOutput = { location: LocationPublicRef; data:
 export type ConfigGetInput = { readonly location?: { readonly directory?: string | undefined } | undefined }
 
 export type ConfigGetOutput = Array<ConfigEntry>
+
+export type ConfigThemeInput = { readonly location?: { readonly directory?: string | undefined } | undefined }
+
+export type ConfigThemeOutput = ConfigThemeScope
+
+export type ConfigUpdateThemeInput = {
+  readonly location?: { readonly directory?: string | undefined } | undefined
+  readonly path: string
+  readonly theme: { readonly name?: string; readonly mode?: "system" | "dark" | "light" }
+}
+
+export type ConfigUpdateThemeOutput = ConfigThemeScope
 
 export type ConfigShellsOutput = Array<ConfigShellOption>
 

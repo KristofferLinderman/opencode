@@ -23,6 +23,30 @@ import { ConfigWatcher } from "./config/watcher.js"
 import { ConfigWarming } from "./config/warming.js"
 import { ConfigWorktree } from "./config/worktree.js"
 
+export const Theme = Schema.Struct({
+  name: Schema.String.pipe(optional),
+  mode: Schema.Literals(["system", "dark", "light"]).pipe(optional),
+}).annotate({ identifier: "Config.Theme" })
+export type Theme = typeof Theme.Type
+
+export const ThemeScope = Schema.Struct({
+  path: AbsolutePath.pipe(optional),
+  theme: Theme,
+}).annotate({ identifier: "Config.ThemeScope" })
+export type ThemeScope = typeof ThemeScope.Type
+
+export const ThemePatch = Schema.Struct({
+  path: AbsolutePath,
+  theme: Theme,
+}).annotate({ identifier: "Config.ThemePatch" })
+export type ThemePatch = typeof ThemePatch.Type
+
+export class ThemeScopeChangedError extends Schema.TaggedError<ThemeScopeChangedError>()(
+  "ThemeScopeChangedError",
+  { message: Schema.String },
+  { httpApiStatus: 409 },
+) {}
+
 export class Info extends Schema.Class<Info>("Config.Info")({
   $schema: optional(Schema.String).annotate({
     description: "JSON schema reference for configuration validation",
@@ -32,6 +56,9 @@ export class Info extends Schema.Class<Info>("Config.Info")({
   }),
   model: ConfigModel.Selection.pipe(optional).annotate({
     description: "Default model to use when no session or agent model is selected",
+  }),
+  theme: Theme.pipe(optional).annotate({
+    description: "Terminal theme overrides inherited by sessions in this directory",
   }),
   default_agent: Schema.String.pipe(optional).annotate({
     description: "Default primary agent to use when no session agent is selected",
