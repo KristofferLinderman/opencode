@@ -15,7 +15,7 @@ import { Service } from "@opencode/client/effect/service"
 import { OpenCode } from "@opencode/client/promise"
 import { findSession } from "../../session-target"
 import { errorMessage } from "../../util/error"
-import { forkUpdatePrompt } from "../../services/fork-update"
+import { forkCanRebuild, forkRebuild, forkRebuildAverageSeconds, forkUpdatePrompt } from "../../services/fork-update"
 
 export default Runtime.handler(Commands, (input) =>
   Effect.gen(function* () {
@@ -94,7 +94,8 @@ export default Runtime.handler(Commands, (input) =>
     const runFork = Effect.runForkWith(context)
     const runPromise = Effect.runPromiseWith(context)
     const service = server.service
-    yield* run({
+    const rebuild = !input.standalone && (yield* Effect.promise(forkCanRebuild))
+    const relaunch = yield* run({
       app: {
         name: process.env.OPENCODE_CLIENT ?? OPENCODE_ARTIFACT,
         version: OPENCODE_VERSION,
@@ -124,6 +125,9 @@ export default Runtime.handler(Commands, (input) =>
         get: () => runPromise(config.get()),
         update: (update) => runPromise(config.update(update)),
       },
+      rebuild: rebuild
+        ? { run: () => forkRebuild(OPENCODE_VERSION), averageSeconds: forkRebuildAverageSeconds }
+        : undefined,
       updater: {
         prompt: forkUpdatePrompt,
         remote: requestedServer !== undefined,
@@ -158,5 +162,13 @@ export default Runtime.handler(Commands, (input) =>
         runFork(effect)
       },
     }).pipe(Effect.provide(LayerNode.compile(Global.node)))
+    if (relaunch) {
+      const executable = process.execPath
+      const args = [executable]
+      if (requestedServer) args.push("--server", requestedServer)
+      if (input.auto || input.yolo || input.dangerouslySkipPermissions) args.push("--auto")
+      if (relaunch.sessionID) args.push("--session", relaunch.sessionID)
+      process.execve?.(executable, args, process.env)
+    }
   }),
 )

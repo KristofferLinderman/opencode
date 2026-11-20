@@ -1,4 +1,17 @@
 const FORK = "/Users/kristoffer/Code/Web/opencode"
+const binary = `${FORK}/packages/cli/dist/cli-darwin-arm64/bin/opencode`
+const script = `${FORK}/script/fork-build.sh`
+
+export const forkRebuildAverageSeconds = 14
+
+export const forkRebuild = async (version: string) => {
+  const build = Bun.spawn(["/bin/bash", script, version], { stdout: "ignore", stderr: "pipe" })
+  const stderr = await new Response(build.stderr).text()
+  if ((await build.exited) !== 0) throw new Error(stderr.trim() || "OpenCode build failed.")
+}
+
+export const forkCanRebuild = async () =>
+  process.execPath === binary && typeof process.execve === "function" && (await Bun.file(script).exists())
 
 export const forkUpdatePrompt = (input: string) => {
   const version = input.replace(/^v/, "")

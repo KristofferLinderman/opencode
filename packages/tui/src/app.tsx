@@ -197,6 +197,7 @@ export type TuiInput = {
   args: Args
   config: Config.Interface
   updater?: UpdateSource
+  rebuild?: { run: () => Promise<void>; averageSeconds: number }
   packages: PackageSource
   environment?: Readonly<Record<string, string>>
   terminalHandoff?: () => Promise<
@@ -245,6 +246,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
     session: undefined as SessionEpilogue | undefined,
     updatedVersion: undefined as string | undefined,
     reason: undefined as unknown,
+    relaunch: undefined as { sessionID?: string } | undefined,
   }
   const result = yield* Effect.scoped(
     Effect.gen(function* () {
@@ -435,7 +437,14 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
                                                                                 packages={input.packages}
                                                                                 directories={pluginDirectories}
                                                                               >
-                                                                                <App />
+                                                                                  <App
+                                                                                    rebuild={input.rebuild}
+                                                                                    relaunch={(sessionID) => {
+                                                                                      if (renderer.isDestroyed) return
+                                                                                      exit.relaunch = { sessionID }
+                                                                                      destroyRenderer(renderer)
+                                                                                    }}
+                                                                                  />
                                                                               </PluginProvider>
                                                                             </PanelProvider>
                                                                           </UpdateNotificationProvider>
@@ -478,9 +487,10 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
         }
       })
       yield* shutdown.await
-      return { session: exit.session, updatedVersion: exit.updatedVersion, reason: exit.reason }
+      return exit
     }),
   )
+  if (result.relaunch) return result.relaunch
   yield* Effect.sync(() => {
     if (result.reason !== undefined)
       process.stderr.write((cliErrorMessage(result.reason) ?? errorFormat(result.reason)) + "\n")
@@ -489,12 +499,15 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
   })
 })
 
-function App() {
+function App(props: { rebuild?: TuiInput["rebuild"]; relaunch: (sessionID?: string) => void }) {
   const app = useTuiApp()
   const startup = useTuiStartup()
   const config = useConfig()
   const devtools = createMemo(() => config.data.debug?.devtools ?? app.channel === "local")
   const route = useRoute()
+  const [rebuildElapsed, setRebuildElapsed] = createSignal<number>()
+  let rebuildTimer: ReturnType<typeof setInterval> | undefined
+  onCleanup(() => clearInterval(rebuildTimer))
   const dimensions = useTerminalDimensions()
   const renderer = useRenderer()
   const dialog = useDialog()
@@ -1100,6 +1113,35 @@ function App() {
             },
           ]
         : []),
+      ...(props.rebuild
+        ? [
+            {
+              name: "opencode.rebuild",
+              title: "Rebuild and reopen this TUI",
+              slash: { name: "rebuild" },
+              run: async () => {
+                if (rebuildElapsed() !== undefined || !props.rebuild) return
+                dialog.clear()
+                const started = performance.now()
+                setRebuildElapsed(0)
+                rebuildTimer = setInterval(
+                  () => setRebuildElapsed(Math.floor((performance.now() - started) / 1000)),
+                  1000,
+                ).unref()
+                try {
+                  await props.rebuild.run()
+                  props.relaunch(route.data.type === "session" ? route.data.sessionID : undefined)
+                } catch (error) {
+                  toast.error(error)
+                } finally {
+                  clearInterval(rebuildTimer)
+                  setRebuildElapsed(undefined)
+                }
+              },
+              category: "System",
+            },
+          ]
+        : []),
       {
         name: "location.reload",
         title: "Reload configuration",
@@ -1469,6 +1511,13 @@ function App() {
           <PaneResizeHandle resize={tabsResize} left={tabsResize.size() - 1} />
         </Show>
       </box>
+      <Show when={rebuildElapsed() !== undefined}>
+        <box flexShrink={0} paddingX={2} backgroundColor={theme.background.raised.base}>
+          <text fg={theme.text.base} wrapMode="none" truncate>
+            Rebuilding CLI · {rebuildElapsed()}s elapsed · ~{props.rebuild?.averageSeconds}s average
+          </text>
+        </box>
+      </Show>
       <Show when={devtools() && !(route.data.type === "plugin" && route.data.id === "opencode.stats")}>
         <DevToolsBar />
       </Show>

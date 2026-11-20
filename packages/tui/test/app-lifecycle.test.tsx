@@ -1370,6 +1370,54 @@ test("configured app binding opens settings", async () => {
   expect(settings).toContain("Animations")
 })
 
+test("/rebuild keeps the TUI open on failure and returns the active session on success", async () => {
+  const session = {
+    id: "ses_rebuild",
+    title: "Rebuild fixture",
+    projectID: "project",
+    location: { directory },
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    time: { created: 1, updated: 2 },
+  }
+  let attempts = 0
+  const failure = Promise.withResolvers<void>()
+  await using setup = await createAppFixture({
+    args: { sessionID: session.id },
+    rebuild: {
+      averageSeconds: 14,
+      run: async () => {
+        if (++attempts !== 1) return
+        await failure.promise
+        throw new Error("Build fixture failed")
+      },
+    },
+    fetch: (url) => {
+      if (url.pathname === `/api/session/${session.id}`) return json({ data: session })
+      if (/^\/api\/session\/ses_rebuild\/(message|inbox|permission)$/.test(url.pathname))
+        return json({ data: [], cursor: {} })
+    },
+  })
+  await setup.ready
+  await setup.waitForFrame((frame) => frame.includes(session.title) && frame.includes("commands"))
+  const rebuild = async () => {
+    await setup.mockInput.typeText("/rebuild")
+    await setup.waitForFrame((frame) => frame.includes("Rebuild and reopen"))
+    setup.mockInput.pressEnter()
+  }
+  await rebuild()
+  try {
+    await setup.waitForFrame((frame) => /Rebuilding CLI · \d+s elapsed · ~14s average/.test(frame), { maxPasses: 30 })
+  } finally {
+    failure.resolve()
+  }
+  await setup.waitForFrame((frame) => frame.includes("Build fixture failed"))
+  expect(setup.captureCharFrame()).not.toContain("Rebuilding CLI")
+  expect(setup.renderer.isDestroyed).toBe(false)
+  await rebuild()
+  expect(await setup.exited).toEqual({ sessionID: session.id })
+})
+
 test("ctrl+c dismisses autocomplete and shell mode before exiting", async () => {
   await using setup = await createAppFixture()
   await setup.ready
