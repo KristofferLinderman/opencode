@@ -47,7 +47,7 @@ import {
 } from "@opencode/client"
 import { useLocal } from "../../context/local"
 import { Locale } from "../../util/locale"
-import { MessageTimestamp } from "./message-timestamp"
+import { HoverTimestamp, MessageTimestamp } from "./message-timestamp"
 import { FilePath } from "../../ui/file-path"
 import {
   canonicalToolName,
@@ -194,6 +194,7 @@ export function Session(props: {
     const index = messages().findIndex((message) => message.id === messageID)
     return index === -1 ? [] : messages().slice(index)
   }
+  const [hoveredAssistant, setHoveredAssistant] = createSignal<string>()
   const currentLocation = useLocation()
   const location = createMemo(() => session()?.location ?? currentLocation.ref)
 
@@ -225,6 +226,26 @@ export function Session(props: {
     data.session.pending.list(route.sessionID).flatMap((item) => (item.type === "user" ? [item] : [])),
   )
   const pendingDeliveries = createMemo(() => new Map(pendingUsers().map((item) => [item.id, item.delivery])))
+  const latestUser = createMemo(
+    () =>
+      messagesBeforeRevert().findLast(
+        (message) =>
+          message.type === "user" &&
+          (message.text.trim() || message.files?.length || message.skills?.length) &&
+          pendingDeliveries().get(message.id) !== "queue",
+      )?.id,
+  )
+  const latestAssistant = createMemo(
+    () =>
+      messagesBeforeRevert().findLast(
+        (message) =>
+          message.type === "assistant" &&
+          (message.content.some((part) => part.type === "text" && part.text.trim()) ||
+            (message.finish && !["tool-calls", "unknown"].includes(message.finish)) ||
+            message.error ||
+            message.retry),
+      )?.id,
+  )
   const queuedPrompts = createMemo(() =>
     pendingUsers().flatMap((item) =>
       item.delivery === "queue" ? [{ id: item.id, text: item.payload.text, payload: item.payload }] : [],
@@ -1514,6 +1535,11 @@ export function Session(props: {
         models,
         messageIndex: (messageID) => messageIndexes().get(messageID),
         legacyTurns: legacy,
+        latestUser,
+        latestAssistant,
+        hoveredAssistant,
+        hoverAssistant: (id, hovered) =>
+          setHoveredAssistant((current) => (hovered ? id : current === id ? undefined : current)),
         config,
         mutatePending,
         pendingDelivery: (inboxID) => pendingDeliveries().get(inboxID),
@@ -1979,11 +2005,18 @@ function ExecutionError(props: { error: NonNullable<Extract<SessionMessageInfo, 
   )
 }
 
+function leftMessage(event: MouseEvent) {
+  const row = event.currentTarget
+  // Moving between a message and its overlay changes the hit target, not the hovered message.
+  return !row || event.x < row.x || event.x >= row.x + row.width || event.y < row.y || event.y >= row.y + row.height
+}
+
 function SessionPartView(props: {
   partRef: PartRef
   message: (messageID: string) => SessionMessageInfo | undefined
   images?: boolean
 }) {
+  const ctx = use()
   const config = useConfig()
   const timestampLayout = () => config.data.session.timestamps ?? "footer"
   const message = createMemo(() => props.message(props.partRef.messageID))
@@ -1992,33 +2025,54 @@ function SessionPartView(props: {
     if (item?.type !== "assistant") return
     return resolvePart(item, props.partRef.partID)
   })
+  const time = () => {
+    const info = message() as SessionMessageAssistant
+    return info.time.completed ?? info.time.created
+  }
   return (
     <Show when={part()}>
       {(item) => (
         <Switch>
           <Match when={item().type === "text"}>
-            <Show
-              when={
-                timestampLayout() !== "footer" &&
-                item() === (message() as SessionMessageAssistant).content.find((part) => part.type === "text")
-              }
+            <box
+              onMouseOver={() => ctx.hoverAssistant(props.partRef.messageID, true)}
+              onMouseOut={(event) => {
+                if (leftMessage(event)) ctx.hoverAssistant(props.partRef.messageID, false)
+              }}
             >
-              <box paddingLeft={3}>
-                <MessageTimestamp
-                  time={
-                    (message() as SessionMessageAssistant).time.completed ??
-                    (message() as SessionMessageAssistant).time.created
-                  }
-                  layout={timestampLayout() as "header" | "divider"}
-                />
-              </box>
-            </Show>
+              <Show
+                when={
+                  timestampLayout() !== "footer" &&
+                  item() ===
+                    (message() as SessionMessageAssistant).content.find(
+                      (part) => part.type === "text" && (timestampLayout() === "header" || part.text.trim()),
+                    ) &&
+                  (timestampLayout() === "header" || ctx.latestAssistant() === props.partRef.messageID)
+                }
+              >
+                <box paddingLeft={timestampLayout() === "header" ? 3 : 0}>
+                  <MessageTimestamp
+                    time={time()}
+                    layout={timestampLayout() as "header" | "divider"}
+                  />
+                </box>
+              </Show>
 
-            <TextPart
-              part={item() as SessionMessageAssistantText}
-              message={message() as SessionMessageAssistant}
-              last={false}
-            />
+              <TextPart
+                part={item() as SessionMessageAssistantText}
+                message={message() as SessionMessageAssistant}
+                last={false}
+              />
+
+              <Show when={
+                timestampLayout() === "divider" &&
+                ctx.latestAssistant() !== props.partRef.messageID &&
+                ctx.hoveredAssistant() === props.partRef.messageID &&
+                item() === (message() as SessionMessageAssistant).content.find((part) => part.type === "text" && part.text.trim())
+              }>
+                <HoverTimestamp time={time()} />
+              </Show>
+            </box>
           </Match>
           <Match when={item().type === "reasoning"}>
             <ReasoningPart
@@ -2056,6 +2110,10 @@ function AssistantFooter(props: { message: SessionMessageAssistant }) {
   const interrupted = createMemo(() => props.message.error?.message === "Step interrupted")
   const freeLimit = createMemo(() => props.message.error?.type === "provider.free-limit")
   const limitNotice = useLimitNotice(() => props.message)
+  const time = () => props.message.time.completed ?? props.message.time.created
+  const hasText = () => props.message.content.some(
+    (part) => part.type === "text" && (config.data.session.timestamps === "header" || part.text.trim()),
+  )
   return (
     <>
       <Show when={props.message.error && !interrupted() && !props.message.retry}>
@@ -2073,7 +2131,14 @@ function AssistantFooter(props: { message: SessionMessageAssistant }) {
         </Switch>
       </Show>
       <AssistantRetry retry={props.message.retry} />
-      <box paddingLeft={3} marginTop={props.message.retry || (props.message.error && !interrupted()) ? 1 : 0}>
+      <box
+        paddingLeft={3}
+        marginTop={props.message.retry || (props.message.error && !interrupted()) ? 1 : 0}
+        onMouseOver={() => ctx.hoverAssistant(props.message.id, true)}
+        onMouseOut={(event) => {
+          if (leftMessage(event)) ctx.hoverAssistant(props.message.id, false)
+        }}
+      >
         <box flexDirection="row" flexWrap="wrap">
           <text fg={props.message.error ? theme.text.muted : local.agent.color(props.message.agent)} wrapMode="none">
             {Locale.titlecase(props.message.agent)}
@@ -2096,12 +2161,13 @@ function AssistantFooter(props: { message: SessionMessageAssistant }) {
           <Show
             when={
               (config.data.session.timestamps ?? "footer") === "footer" ||
-              !props.message.content.some((part) => part.type === "text")
+              (!hasText() &&
+                (config.data.session.timestamps !== "divider" || ctx.latestAssistant() === props.message.id))
             }
           >
             <text fg={theme.text.muted} wrapMode="none">
               {" · "}
-              {Locale.time(props.message.time.completed ?? props.message.time.created)}
+              {Locale.time(time())}
             </text>
           </Show>
 
@@ -2121,6 +2187,15 @@ function AssistantFooter(props: { message: SessionMessageAssistant }) {
             </text>
           </Show>
         </box>
+
+        <Show when={
+          config.data.session.timestamps === "divider" &&
+          !hasText() &&
+          ctx.latestAssistant() !== props.message.id &&
+          ctx.hoveredAssistant() === props.message.id
+        }>
+          <HoverTimestamp time={time()} />
+        </Show>
       </box>
     </>
   )
@@ -2446,86 +2521,62 @@ function UserMessage(props: { message: SessionMessageUser }) {
       </Show>
 
       <box
-        border={["left"]}
-        borderColor={delivery() ? theme.border.base : color()}
-        customBorderChars={SplitBorder.customBorderChars}
-        backgroundColor={theme.background.raised.base}
+        onMouseOver={() => setHover(true)}
+        onMouseOut={(event) => {
+          if (leftMessage(event)) setHover(false)
+        }}
       >
-        <SessionImages images={images()} paddingLeft={2} />
+        <Show when={timestampLayout() === "divider" && ctx.latestUser() === props.message.id}>
+          <MessageTimestamp time={props.message.time.created} layout="divider" />
+        </Show>
+
         <box
-          onMouseOver={() => {
-            setHover(true)
-          }}
-          onMouseOut={() => {
-            setHover(false)
-          }}
-          onMouseUp={() => {
-            if (renderer.getSelection()?.getSelectedText()) return
-            if (delivery() === "steer") {
-              dialog.replace(() => (
-                <DialogSelect
-                  title="Pending steer"
-                  renderFilter={!newDesigns()}
-                  options={[
-                    { title: "Move to queue", value: "queue" as const },
-                    { title: "Delete", value: "cancel" as const },
-                  ]}
-                  onSelect={(option) => {
-                    void updatePendingSteer(option.value)
-                  }}
-                />
-              ))
-              return
-            }
-            // The dialog outlives this row, whose props go stale when a resync drops the message.
-            const messageID = props.message.id
-            dialog.replace(() => <DialogMessage messageID={messageID} sessionID={ctx.sessionID} />)
-          }}
-          paddingTop={1}
-          paddingBottom={1}
-          paddingLeft={2}
-          paddingRight={2}
-          backgroundColor={hover() ? theme.decrease(theme.background.raised.base) : theme.background.raised.base}
-          flexShrink={0}
+          border={["left"]}
+          borderColor={delivery() ? theme.border.base : color()}
+          customBorderChars={SplitBorder.customBorderChars}
+          backgroundColor={theme.background.raised.base}
         >
-          <Show when={timestampLayout() === "divider"}>
-            <MessageTimestamp time={props.message.time.created} layout="divider" />
-          </Show>
+          <SessionImages images={images()} paddingLeft={2} />
+          <box
+            onMouseUp={() => {
+              if (renderer.getSelection()?.getSelectedText()) return
+              if (delivery() === "steer") {
+                dialog.replace(() => (
+                  <DialogSelect
+                    title="Pending steer"
+                    renderFilter={!newDesigns()}
+                    options={[
+                      { title: "Move to queue", value: "queue" as const },
+                      { title: "Delete", value: "cancel" as const },
+                    ]}
+                    onSelect={(option) => {
+                      void updatePendingSteer(option.value)
+                    }}
+                  />
+                ))
+                return
+              }
+              // The dialog outlives this row, whose props go stale when a resync drops the message.
+              const messageID = props.message.id
+              dialog.replace(() => <DialogMessage messageID={messageID} sessionID={ctx.sessionID} />)
+            }}
+            paddingTop={1}
+            paddingBottom={1}
+            paddingLeft={2}
+            paddingRight={2}
+            backgroundColor={hover() ? theme.decrease(theme.background.raised.base) : theme.background.raised.base}
+            flexShrink={0}
+          >
+            <text fg={theme.text.base}>{props.message.text}</text>
 
-          <text fg={theme.text.base}>{props.message.text}</text>
+            <Show when={timestampLayout() === "footer"}>
+              <text fg={theme.text.muted}>{Locale.time(props.message.time.created)}</text>
+            </Show>
 
-          <Show when={timestampLayout() === "footer"}>
-            <text fg={theme.text.muted}>{Locale.time(props.message.time.created)}</text>
-          </Show>
-
-          <Show when={skills().length}>
-            <box flexDirection="row" paddingTop={1} gap={1} flexWrap="wrap">
-              <For each={skills()}>
-                {(skill) => (
-                  <text fg={theme.text.base}>
-                    <span
-                      style={{
-                        bg: theme.hue.accent[mode() === "light" ? 300 : 200],
-                        fg: theme.background.raised.base,
-                        bold: true,
-                      }}
-                    >
-                      {" skill "}
-                    </span>
-                    <span style={{ bg: theme.decrease(theme.background.raised.base), fg: theme.text.muted }}>
-                      {` ${skill.name} `}
-                    </span>
-                  </text>
-                )}
-              </For>
-            </box>
-          </Show>
-          <Show when={files().length}>
-            <box flexDirection="row" paddingTop={1} gap={1} flexWrap="wrap">
-              <For each={files()}>
-                {(file) => {
-                  const label = file.mime === "application/x-directory" ? "dir" : "file"
-                  return (
+            <Show when={skills().length}>
+              <box flexDirection="row" paddingTop={1} gap={1} flexWrap="wrap">
+                <For each={skills()}>
+                  {(skill) => (
                     <text fg={theme.text.base}>
                       <span
                         style={{
@@ -2534,19 +2585,47 @@ function UserMessage(props: { message: SessionMessageUser }) {
                           bold: true,
                         }}
                       >
-                        {` ${label} `}
+                        {" skill "}
                       </span>
                       <span style={{ bg: theme.decrease(theme.background.raised.base), fg: theme.text.muted }}>
-                        {" "}
-                        {file.name ?? (file.source.type === "uri" ? file.source.uri : "attachment")}{" "}
+                        {` ${skill.name} `}
                       </span>
                     </text>
-                  )
-                }}
-              </For>
-            </box>
-          </Show>
+                  )}
+                </For>
+              </box>
+            </Show>
+            <Show when={files().length}>
+              <box flexDirection="row" paddingTop={1} gap={1} flexWrap="wrap">
+                <For each={files()}>
+                  {(file) => {
+                    const label = file.mime === "application/x-directory" ? "dir" : "file"
+                    return (
+                      <text fg={theme.text.base}>
+                        <span
+                          style={{
+                            bg: theme.hue.accent[mode() === "light" ? 300 : 200],
+                            fg: theme.background.raised.base,
+                            bold: true,
+                          }}
+                        >
+                          {` ${label} `}
+                        </span>
+                        <span style={{ bg: theme.decrease(theme.background.raised.base), fg: theme.text.muted }}>
+                          {" "}
+                          {file.name ?? (file.source.type === "uri" ? file.source.uri : "attachment")}{" "}
+                        </span>
+                      </text>
+                    )
+                  }}
+                </For>
+              </box>
+            </Show>
+          </box>
         </box>
+        <Show when={timestampLayout() === "divider" && ctx.latestUser() !== props.message.id && hover()}>
+          <HoverTimestamp time={props.message.time.created} top={1} />
+        </Show>
       </box>
     </Show>
   )
