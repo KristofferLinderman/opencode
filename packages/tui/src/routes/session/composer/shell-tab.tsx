@@ -1,10 +1,11 @@
-import { createMemo, For, Show, createEffect, onMount, onCleanup } from "solid-js"
+import { createMemo, createSignal, For, Show, createEffect, onMount, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import { TextAttributes, ScrollBoxRenderable } from "@opentui/core"
 import { useData } from "../../../context/data"
 import { useClient } from "../../../context/client"
 import { useTheme } from "../../../context/theme"
 import { Keymap } from "../../../context/keymap"
+import { Locale } from "../../../util/locale"
 import { useComposerTab } from "./context"
 import { useDialog } from "../../../ui/dialog"
 import { DialogShellOutput } from "../../../component/dialog-shell-output"
@@ -22,6 +23,7 @@ export function ShellTab(props: { sessionID: string }) {
   )
 
   const [store, setStore] = createStore({ selected: 0 })
+  const [now, setNow] = createSignal(Date.now())
   let scroll: ScrollBoxRenderable | undefined
 
   const selectedEntry = createMemo(() => entries()[store.selected])
@@ -33,6 +35,13 @@ export function ShellTab(props: { sessionID: string }) {
 
   createEffect(() => {
     if (store.selected >= entries().length) setStore("selected", Math.max(0, entries().length - 1))
+  })
+
+  createEffect(() => {
+    if (!composer.active("shell")) return
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), 1_000)
+    onCleanup(() => clearInterval(timer))
   })
 
   createEffect(() => {
@@ -117,9 +126,14 @@ export function ShellTab(props: { sessionID: string }) {
           <For each={entries()}>
             {(shell, index) => {
               const active = createMemo(() => index() === store.selected)
+              const elapsed = createMemo(() => {
+                const ms = Math.max(0, now() - shell.time.started)
+                return ms < 60_000 ? `${Math.floor(ms / 1000)}s` : Locale.duration(ms)
+              })
               return (
                 <box
                   flexDirection="row"
+                  gap={1}
                   paddingLeft={1}
                   paddingRight={1}
                   backgroundColor={
@@ -131,12 +145,23 @@ export function ShellTab(props: { sessionID: string }) {
                     open()
                   }}
                 >
+                  <box flexGrow={1} minWidth={0} flexDirection="row">
+                    <text
+                      fg={active() ? theme.text.action.primary.focused : theme.text.action.primary.base}
+                      attributes={active() ? TextAttributes.BOLD : undefined}
+                      wrapMode="none"
+                      truncate
+                    >
+                      {shell.command.split("\n", 1)[0]}
+                    </text>
+                  </box>
+
                   <text
-                    fg={active() ? theme.text.action.primary.focused : theme.text.action.primary.base}
-                    attributes={active() ? TextAttributes.BOLD : undefined}
+                    fg={active() ? theme.text.action.primary.focused : theme.text.muted}
                     wrapMode="none"
+                    flexShrink={0}
                   >
-                    {shell.command.split("\n", 1)[0]}
+                    {elapsed()}
                   </text>
                 </box>
               )

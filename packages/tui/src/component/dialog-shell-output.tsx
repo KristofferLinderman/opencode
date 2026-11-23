@@ -11,6 +11,7 @@ import { Keymap } from "../context/keymap"
 import { useTheme } from "../context/theme"
 import { DialogFooter, DialogHeader, DialogLayout, useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
+import { Locale } from "../util/locale"
 
 const PAGE_BYTES = 64 * 1024
 
@@ -89,11 +90,22 @@ export function DialogShellOutput(props: { shell: ShellInfo; location: LocationR
     })
   })
 
+  const [now, setNow] = createSignal(Date.now())
+  createEffect(() => {
+    if (info().status !== "running") return
+    const timer = setInterval(() => setNow(Date.now()), 1_000)
+    onCleanup(() => clearInterval(timer))
+  })
+  const elapsed = () => {
+    const ms = Math.max(0, (info().time.completed ?? now()) - info().time.started)
+    return ms < 60_000 ? `${Math.floor(ms / 1000)}s` : Locale.duration(ms)
+  }
+
   const status = () => {
-    if (info().status === "running") return "Running"
-    if (info().status === "timeout") return "Timed out"
-    if (info().status === "killed") return "Killed"
-    return info().exit === undefined ? "Exited" : `Exited · code ${info().exit}`
+    if (info().status === "running") return `Running · ${elapsed()}`
+    if (info().status === "timeout") return `Timed out · ${elapsed()}`
+    if (info().status === "killed") return `Killed · ${elapsed()}`
+    return info().exit === undefined ? `Exited · ${elapsed()}` : `Exited · code ${info().exit} · ${elapsed()}`
   }
 
   const copy = (kind: "command" | "output") => {
