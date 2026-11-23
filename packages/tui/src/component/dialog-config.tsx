@@ -413,6 +413,7 @@ export function DialogConfig(props: { current?: string }) {
       if (!result || typeof result !== "object") return undefined
       return (result as Record<string, unknown>)[key]
     }, config.data)
+    // The theme context resolves aliases and missing themes, so it names what is actually shown.
     if (setting.path.join(".") === "theme.name") return themes.selected
     if (setting.path.join(".") === "theme.mode") return themes.preference().mode ?? setting.default
     return current ?? setting.default
