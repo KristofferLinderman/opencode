@@ -10,7 +10,6 @@ import {
 } from "@opencode/theme/tui"
 import {
   allThemes,
-  getOpenCode2Theme,
   hasTheme,
   parseTheme,
   setCustomThemes,
@@ -223,6 +222,18 @@ const themeContext = createSimpleContext({
     let probing = false
     let queued = false
     let disposed = false
+    // OpenTUI emits palette for each query result and again for a reply that arrives after its query ended.
+    const handlePalette = (colors: TerminalColors) => {
+      if (disposed || !usablePalette(colors)) return
+      palette = colors
+      const mode = store.lock ?? terminalMode(colors) ?? store.mode
+      if (store.mode !== mode) setStore("mode", mode)
+      applyPalette()
+      void cache?.[1]((draft) => {
+        draft.colors = colors
+      }).catch(() => {})
+    }
+    renderer.on(CliRenderEvents.PALETTE, handlePalette)
     function refreshPalette() {
       if (store.active !== "system") return
       queued = true
@@ -235,16 +246,7 @@ const themeContext = createSimpleContext({
       renderer.clearPaletteCache()
       void renderer
         .getPalette({ size: 16 })
-        .then((colors) => {
-          if (disposed || !usablePalette(colors)) return
-          palette = colors
-          const mode = store.lock ?? terminalMode(colors) ?? store.mode
-          if (store.mode !== mode) setStore("mode", mode)
-          applyPalette()
-          void cache?.[1]((draft) => {
-            draft.colors = colors
-          }).catch(() => {})
-        })
+        .then(handlePalette)
         .catch(() => {})
         .finally(() => {
           probing = false
@@ -267,6 +269,7 @@ const themeContext = createSimpleContext({
     }
 
     async function save(theme: ConfigTheme) {
+      if (theme.name !== undefined) theme = { ...theme, name: alias(theme.name) }
       const current = scoped()
       if (props.scopes && !current) throw new Error("Theme scope is unavailable. Try again.")
       if (current?.path && props.scopes) return props.scopes.update(current.path, theme)
@@ -322,31 +325,35 @@ const themeContext = createSimpleContext({
       disposed = true
       discovery++
       renderer.off(CliRenderEvents.THEME_MODE, handleMode)
+      renderer.off(CliRenderEvents.PALETTE, handlePalette)
       renderer.removeInputHandler(handleThemeNotification)
       unsubscribeRefresh?.()
       for (const timeout of themeRefreshTimeouts) clearTimeout(timeout)
       themeRefreshTimeouts.length = 0
     })
 
-    const available = createMemo(
-      (): Record<string, ThemeDocumentSource> =>
-        newDesigns() ? { opencode2: getOpenCode2Theme(), ...themeSources() } : themeSources(),
-    )
-    const has = (name: string) => Boolean(name) && available()[name] !== undefined
+    const available = themeSources
+    // "opencode2" was the new theme's name before it became "opencode".
+    const alias = (name: string) => (name === "opencode2" && !available().opencode2 ? "opencode" : name)
+    const has = (name: string) => Boolean(name) && available()[alias(name)] !== undefined
     const activeName = () =>
-      has(store.active) ? store.active : config.theme?.name && has(config.theme.name) ? config.theme.name : "opencode"
+      has(store.active)
+        ? alias(store.active)
+        : config.theme?.name && has(config.theme.name)
+          ? alias(config.theme.name)
+          : "opencode"
 
     const initStarted = performance.now()
     const selected = createMemo(() => {
       const sources = available()
       const name = activeName()
       try {
-        return loadTheme(sources[name], name, store.mode, newDesigns())
+        return { name, ...loadTheme(sources[name], name, store.mode, newDesigns()) }
       } catch (error) {
         if (name === "opencode") throw error
         themeErrors.emit(name, error)
         setStore("active", "opencode")
-        return loadTheme(sources.opencode, "opencode", store.mode, newDesigns())
+        return { name: "opencode", ...loadTheme(sources.opencode, "opencode", store.mode, newDesigns()) }
       }
     })
     const modes = () => selected().modes
@@ -364,7 +371,7 @@ const themeContext = createSimpleContext({
       currentTokens: tokens,
       currentSyntax,
       get selected() {
-        return store.active
+        return selected().name
       },
       all: available,
       has,
