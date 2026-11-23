@@ -842,7 +842,7 @@ test("keeps assistant footer metrics current after prepend, same-length refresh,
     width: 100,
     height: 40,
     state: state.path,
-    config: { animations: false, tabs: { mode: "off" }, session: { sidebar: "hide", tps: true } },
+    config: { animations: false, tabs: { mode: "off" }, session: { sidebar: "hide", timestamps: "header", tps: true } },
     args: { sessionID: session.id },
     fetch: (url) => {
       if (url.pathname === `/api/session/${session.id}`) return json({ data: session })

@@ -488,7 +488,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
         }
       })
       yield* shutdown.await
-      return exit
+      return { ...exit }
     }),
   )
   if (result.relaunch) return result.relaunch
