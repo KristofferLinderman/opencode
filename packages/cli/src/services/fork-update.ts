@@ -4,8 +4,8 @@ const script = `${FORK}/script/fork-build.sh`
 
 export const forkRebuildAverageSeconds = 14
 
-export const forkRebuild = async (version: string) => {
-  const build = Bun.spawn(["/bin/bash", script, version], { stdout: "ignore", stderr: "pipe" })
+export const forkRebuild = async () => {
+  const build = Bun.spawn(["/bin/bash", script], { stdout: "ignore", stderr: "pipe" })
   const stderr = await new Response(build.stderr).text()
   if ((await build.exited) !== 0) throw new Error(stderr.trim() || "OpenCode build failed.")
 }

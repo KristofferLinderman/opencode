@@ -140,7 +140,7 @@ export default Runtime.handler(Commands, (input) =>
         update: (update) => runPromise(config.update(update)),
       },
       rebuild: rebuild
-        ? { run: () => forkRebuild(OPENCODE_VERSION), averageSeconds: forkRebuildAverageSeconds }
+        ? { run: () => forkRebuild(), averageSeconds: forkRebuildAverageSeconds }
         : undefined,
       updater: {
         prompt: forkUpdatePrompt,

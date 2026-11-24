@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 binary="$repo/packages/cli/dist/cli-darwin-arm64/bin/opencode"
-version="${1:-$("$binary" --version)}"
+version="${1:-$(sed -n 's/^  "version": "\(.*\)",$/\1/p' "$repo/packages/cli/package.json")}"
 version="${version#opencode v}"
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Expected a stable version, got: $version" >&2; exit 1; }
 bun_dir="$repo/.cache/toolchain/bun-darwin-aarch64"
