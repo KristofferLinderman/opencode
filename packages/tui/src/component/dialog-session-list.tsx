@@ -141,6 +141,16 @@ export function DialogSessionList() {
     return projectName(project) ?? ""
   })
 
+  // Names the model the session last ran on, so similar titles can be told apart.
+  const modelName = (session: SessionInfo) => {
+    const model = session.model
+    if (!model) return
+    const info = (data.location.model.list(session.location) ?? data.location.model.list(pickerLocation()))?.find(
+      (item) => item.providerID === model.providerID && item.id === model.id,
+    )
+    return Locale.truncate(info?.name ?? model.id, 20)
+  }
+
   const options = createMemo(() => {
     const today = new Date().toDateString()
     const sessionMap = new Map(
@@ -157,10 +167,11 @@ export function DialogSessionList() {
       const project = data.project.get(session.projectID)
       const root = session.subpath ? path.resolve(directory, ...session.subpath.split("/").map(() => "..")) : directory
       const relative = path.relative(project?.canonical ?? root, root)
-      const footer =
+      const worktree =
         relative.startsWith("..") || path.isAbsolute(relative)
           ? Locale.truncate(path.basename(relative), 25)
           : undefined
+      const footer = [worktree, modelName(session), Locale.time(session.time.updated)].filter(Boolean).join(" · ")
       const slot = sessionTabs.enabled() ? undefined : slotByID.get(session.id)
       const deleting = toDelete() === session.id
       const attention = sessionTabs.status(session.id).attention
