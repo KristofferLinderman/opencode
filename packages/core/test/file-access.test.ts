@@ -10,6 +10,7 @@ import { Tool } from "@opencode/core/tool"
 import { AbsolutePath } from "@opencode/core/schema"
 import { AppNodeBuilder } from "@opencode/core/effect/app-node-builder"
 import { LayerNode } from "@opencode/util/effect/layer-node"
+import { Global } from "@opencode/util/global"
 import { tempLocationLayer } from "./fixture/location"
 import { tmpdirScoped } from "./fixture/tmpdir"
 import { it } from "./lib/effect"
@@ -131,6 +132,21 @@ describe("FileAccess.authorizeRead", () => {
       yield* access.authorizeRead("../notes.txt", invocation, { siblingOf: requested })
 
       expect(requests.map((request) => request.action)).toEqual(["read", "external_directory", "read"])
+    }).pipe(provide(requests))
+  })
+
+  it.live("asks for the file itself, not every file beside it, in the home folder or the root", () => {
+    const requests: Permission.AssertInput[] = []
+    return Effect.gen(function* () {
+      const access = yield* FileAccess.Service
+      const dotfile = yield* access.resolve({ path: path.join(Global.Path.home, ".zshrc"), kind: "file" })
+      const root = yield* access.resolve({ path: path.join(path.parse(Global.Path.home).root, "hosts"), kind: "file" })
+      const home = yield* access.resolve({ path: Global.Path.home, kind: "directory" })
+
+      expect(dotfile.externalDirectory).toMatchObject({ resource: slash(dotfile.absolute), save: slash(dotfile.absolute) })
+      expect(root.externalDirectory).toMatchObject({ resource: slash(root.absolute), save: slash(root.absolute) })
+      // The home folder itself is still the whole folder.
+      expect(home.externalDirectory?.resource).toBe(slash(path.join(home.absolute, "*")))
     }).pipe(provide(requests))
   })
 

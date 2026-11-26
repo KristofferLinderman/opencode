@@ -203,14 +203,17 @@ const layer = Layer.effect(
           Effect.catchTag("Environment.NotFound", () => Effect.undefined),
         ))
       const directory = AbsolutePath.make(type === "directory" ? absolute : path.dirname(absolute))
+      // A file directly in the home folder or the filesystem root asks for itself: its folder would be every file
+      // there (`~/.zshrc` asking for `~/*`), far more than the file the tool touches.
+      const broad = type !== "directory" && (directory === path.resolve(Global.Path.home) || directory === path.parse(directory).root)
       return {
         absolute,
         resource: slash(absolute),
         externalDirectory: {
           action: "external_directory",
           directory,
-          resource: slash(path.join(directory, "*")),
-          save: slash(path.join((yield* Project.root({ exists }, directory)) ?? directory, "*")),
+          resource: broad ? slash(absolute) : slash(path.join(directory, "*")),
+          save: broad ? slash(absolute) : slash(path.join((yield* Project.root({ exists }, directory)) ?? directory, "*")),
         },
         environment,
       } satisfies Target
