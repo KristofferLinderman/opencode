@@ -1078,7 +1078,7 @@ function App(props: { rebuild?: TuiInput["rebuild"]; relaunch: (sessionID?: stri
         run: () => {
           dialog.replace(() => (
             <DialogIntegration
-              onConnected={(providerID) => dialog.replace(() => <DialogModel providerID={providerID} />)}
+              onConnected={(integrationID) => dialog.replace(() => <DialogModel integrationID={integrationID} />)}
             />
           ))
         },

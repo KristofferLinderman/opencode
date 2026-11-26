@@ -25,6 +25,7 @@ import {
   createMemo,
   createResource,
   createSignal,
+  on,
   onCleanup,
   type Accessor,
   type ParentProps,
@@ -162,16 +163,21 @@ const themeContext = createSimpleContext({
         const mode = lock ?? renderer.themeMode ?? props.mode
         draft.mode = mode
         draft.lock = lock
-        draft.active = config.theme?.name ?? "opencode"
+        draft.active = config.theme?.name || "opencode"
         draft.ready = false
       }),
     )
 
-    createEffect(() => {
-      const theme = preview() ?? preference().name ?? "opencode"
-      setStore("active", theme)
-      if (theme === "system") refreshPalette()
-    })
+    createEffect(
+      on(
+        () => (preview() ?? preference().name) || "opencode",
+        (theme) => {
+          if (store.active === theme) return
+          setStore("active", theme)
+          if (theme === "system") refreshPalette()
+        },
+      ),
+    )
 
     createEffect(() => {
       const mode = preference().mode
