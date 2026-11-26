@@ -260,7 +260,7 @@ test("removing theme or theme.name from config reverts to opencode", async () =>
     expect(themes.mode()).toBe("light")
     expect(theme.background.base.equals(opencodeLight)).toBeTrue()
 
-    // Re-applying a theme and removing the entire theme block also reverts to opencode.
+    // Removing the entire block also clears the configured mode.
     await config.update((draft) => {
       draft.theme = { name: "gruvbox", mode: "light" }
     })
@@ -273,7 +273,9 @@ test("removing theme or theme.name from config reverts to opencode", async () =>
     })
     await app.renderOnce()
     expect(themes.selected).toBe("opencode")
-    expect(theme.background.base.equals(opencodeLight)).toBeTrue()
+    expect(themes.locked()).toBeFalse()
+    expect(themes.mode()).toBe("dark")
+    expect(theme.background.base.equals(resolveThemeDocument(getOpenCodeTheme(), "dark").background.base)).toBeTrue()
   } finally {
     app.renderer.destroy()
   }
